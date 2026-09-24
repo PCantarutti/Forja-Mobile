@@ -66,9 +66,10 @@ export default function LeitorQR({ onLido, dica, erro }: { onLido: (data: string
   const rot = useRef(new Animated.Value(0)).current;
   const esc = useRef(new Animated.Value(1)).current;
   const pulso = useRef(new Animated.Value(1)).current; // respiração e "pop" da confirmação
+  const cam = useRef<CameraView>(null);
   const r = useRef({
     estado: "procurando" as "procurando" | "travando" | "lido",
-    alvo: [] as P[], mov: 0, data: "", desde: 0, reduz: false,
+    alvo: [] as P[], ultimo: null as { p: P[]; a: number; e: number } | null, mov: 0, data: "", desde: 0, reduz: false,
     timer: undefined as ReturnType<typeof setTimeout> | undefined,
     respira: null as Animated.CompositeAnimation | null,
   }).current;
@@ -117,6 +118,9 @@ export default function LeitorQR({ onLido, dica, erro }: { onLido: (data: string
     clearTimeout(r.timer);
     r.respira?.stop();
     setLido(true);
+    // Congela a imagem com o QR e assenta os cantos na última leitura (a mola pode estar atrasada pelo throttle).
+    cam.current?.pausePreview().catch(() => {});
+    if (r.ultimo) vai(r.ultimo.p, r.ultimo.a, r.ultimo.e);
     Animated.sequence([
       Animated.timing(pulso, { toValue: 1.15, duration: r.reduz ? 0 : 120, useNativeDriver: true }),
       Animated.timing(pulso, { toValue: 1, duration: r.reduz ? 0 : 120, useNativeDriver: true }),
@@ -124,6 +128,7 @@ export default function LeitorQR({ onLido, dica, erro }: { onLido: (data: string
     try {
       await onLido(data);
     } catch {
+      cam.current?.resumePreview().catch(() => {});
       setLido(false);
       volta();
     }
@@ -134,6 +139,7 @@ export default function LeitorQR({ onLido, dica, erro }: { onLido: (data: string
     const cru = pontos(ev);
     if (!cru || !valido(cru, tam.w, tam.h)) return;
     const p = expande(ordena(cru), 10), { rot: a, esc: e } = pose(p), agora = Date.now();
+    r.ultimo = { p, a, e };
     clearTimeout(r.timer);
     r.timer = setTimeout(volta, 400); // perdeu o QR
     if (r.estado === "procurando") {
@@ -155,7 +161,7 @@ export default function LeitorQR({ onLido, dica, erro }: { onLido: (data: string
   const tamanho = Animated.multiply(esc, pulso);
   return (
     <View style={{ flex: 1 }} onLayout={({ nativeEvent: { layout } }) => setTam({ w: layout.width, h: layout.height })}>
-      <CameraView style={StyleSheet.absoluteFill} barcodeScannerSettings={{ barcodeTypes: ["qr"] }}
+      <CameraView ref={cam} style={StyleSheet.absoluteFill} barcodeScannerSettings={{ barcodeTypes: ["qr"] }}
                   onBarcodeScanned={lido ? undefined : onScan} />
       {tam && (
         <View style={StyleSheet.absoluteFill} pointerEvents="none">
