@@ -1,4 +1,4 @@
-import { CameraView, useCameraPermissions } from "expo-camera";
+import { useCameraPermissions } from "expo-camera";
 import Constants from "expo-constants";
 import * as Device from "expo-device";
 import * as Notifications from "expo-notifications";
@@ -16,6 +16,7 @@ import Video from "./src/Video";
 import { Abaixo, Balanca, Balao, Busca, Chip, Codigo, Divide, Globo, Filme, Imagem, Info, Menu, Novo, PainelDir, Pasta as IconePasta, Prancheta,
          Pulso, Ramo, Sair, Seta, Term, Voltar } from "./src/icones";
 import Imagens from "./src/Imagens";
+import LeitorQR from "./src/LeitorQR";
 import Maestro from "./src/Maestro";
 import { Painel, PAINEIS, type PainelId } from "./src/Painel";
 import Pesquisa from "./src/Pesquisa";
@@ -419,30 +420,24 @@ function Parear({ onPronto }: { onPronto: () => void }) {
       </View>
     );
   return (
-    <View style={{ flex: 1 }}>
-      <CameraView style={{ flex: 1 }} barcodeScannerSettings={{ barcodeTypes: ["qr"] }}
-        onBarcodeScanned={lendo ? undefined : async ({ data }) => {
-          setLendo(true);
-          try {
-            const p = JSON.parse(data);
-            if (!(p.url || p.lan) || !p.token) throw new Error("Esse QR não é do Forja");
-            await salvaPar({ url: p.url ?? null, lan: p.lan ?? null, token: p.token });
-            await escolheBase();
-            await api.get("/mobile"); // confere endereço + token antes de seguir
-            await registraPush().catch((e) => setErro(`Sem notificações: ${e.message}`));
-            onPronto();
-          } catch (e: any) {
-            await salvaPar(null);
-            setErro(e.message);
-            setLendo(false);
-          }
-        }} />
-      <View style={{ position: "absolute", left: 0, right: 0, bottom: 0, padding: 16, backgroundColor: "#000b" }}>
-        <Text style={[s.muted, { textAlign: "center" }, !!erro && { color: c.red }]}>
-          {erro || (lendo ? "Conectando ao PC…" : "Aponte para o QR da aba Celular")}
-        </Text>
-      </View>
-    </View>
+    <LeitorQR dica={lendo ? "Conectando ao PC…" : "Aponte para o QR da aba Celular"} erro={erro}
+      onLido={async (data) => {
+        setLendo(true);
+        try {
+          const p = JSON.parse(data);
+          if (!(p.url || p.lan) || !p.token) throw new Error("Esse QR não é do Forja");
+          await salvaPar({ url: p.url ?? null, lan: p.lan ?? null, token: p.token });
+          await escolheBase();
+          await api.get("/mobile"); // confere endereço + token antes de seguir
+          await registraPush().catch((e) => setErro(`Sem notificações: ${e.message}`));
+          onPronto();
+        } catch (e: any) {
+          await salvaPar(null);
+          setErro(e.message);
+          setLendo(false);
+          throw e; // leitor volta a procurar
+        }
+      }} />
   );
 }
 
