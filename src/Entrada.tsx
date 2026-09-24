@@ -5,7 +5,7 @@ import Svg, { Circle } from "react-native-svg";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Abaixo, Cubo, Enviar, Escudo, Parar } from "./icones";
 import Modelos, { type Escolha } from "./Modelos";
-import { c, s } from "./tema";
+import { c, mono, s } from "./tema";
 import { type Anexo, CartaoAnexo } from "./Anexo";
 import { Chip, Folha, Lista } from "./ui";
 
@@ -119,9 +119,18 @@ export default function Entrada(p: {
   kind: string; teclado: boolean; rodando: boolean; perm: string; onPerm: (v: string) => void;
   ajustes: Ajustes; onAjustes: (a: Ajustes, gguf?: string) => void; ctx: Contexto | null; podeCompactar: boolean; onCompactar: () => void;
   anexos: Anexo[]; enviando: boolean; onAnexar: () => void; onTiraAnexo: (path: string) => void;
-  onEnvia: (t: string) => void; onPara: () => void;
+  onEnvia: (t: string) => void; onPara: () => void; conv?: number | null;
 }) {
   const [t, setT] = useState("");
+  // /skill:nome em qualquer ponto do texto (desktop App.tsx inlineQuery): o backend lê do conteúdo, aqui só completa.
+  const [skills, setSkills] = useState<{ name: string; description: string }[]>([]);
+  useEffect(() => {
+    api.get<{ skills: { name: string; kind: string; description: string }[] }>(`/conversations/${p.conv ?? 0}/skills`)
+      .then((r) => setSkills(r.skills.filter((x) => x.kind === "prompt"))).catch(() => {});
+  }, [p.conv]);
+  const parcial = /(?:^|\s)\/skill:([\w.-]*)$/.exec(t)?.[1]?.toLowerCase();
+  const sugestoes = parcial == null ? [] : skills.filter((x) => x.name.toLowerCase().startsWith(parcial)).slice(0, 6);
+  const completa = (nome: string) => setT((x) => x.replace(/\/skill:[\w.-]*$/, `/skill:${nome} `));
   const [menu, setMenu] = useState<null | "perm" | "esforco" | "modelo" | "contexto">(null);
   const inset = useSafeAreaInsets();
   const agentica = p.kind === "agent" || p.kind === "maestro";
@@ -138,6 +147,17 @@ export default function Entrada(p: {
             {p.anexos.map((a) => <CartaoAnexo key={a.path} a={a} onRemover={() => p.onTiraAnexo(a.path)} />)}
             {p.enviando && <Text style={[s.faint, { alignSelf: "center" }]}>enviando…</Text>}
           </ScrollView>
+        )}
+        {sugestoes.length > 0 && (
+          <View style={{ borderColor: c.line, borderWidth: 1, borderRadius: 14, overflow: "hidden" }}>
+            {sugestoes.map((x, i) => (
+              <Pressable key={x.name} onPress={() => completa(x.name)}
+                         style={{ paddingHorizontal: 12, paddingVertical: 9, borderTopWidth: i ? 1 : 0, borderTopColor: c.line }}>
+                <Text style={{ color: c.fg, fontFamily: mono, fontSize: 13 }}>/skill:{x.name}</Text>
+                {!!x.description && <Text style={[s.faint, { fontSize: 12 }]} numberOfLines={1}>{x.description}</Text>}
+              </Pressable>
+            ))}
+          </View>
         )}
         <TextInput style={{ color: c.fg, fontSize: 15, maxHeight: 150, paddingHorizontal: 8, paddingTop: 6 }} value={t} onChangeText={setT}
                    multiline placeholder={p.rodando ? "Entra no próximo passo da IA…" : "Mensagem para o Forja"} placeholderTextColor={c.faint} />

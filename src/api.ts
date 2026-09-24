@@ -2,29 +2,60 @@ import { fetch } from "expo/fetch";
 import { Directory as Pasta, File as ArquivoLocal, Paths } from "expo-file-system";
 import * as SecureStore from "expo-secure-store";
 
-/** Pareamento lido do QR da aba Celular do Forja Desktop. */
-export type Par = { url: string; token: string };
+/** Pareamento lido do QR da aba Celular do Forja Desktop: tailnet (`url`) e/ou rede local (`lan`). */
+export type Par = { url: string | null; lan?: string | null; token: string };
 
 let par: Par | null = null;
+let atual = ""; // endereço em uso: a rede local quando responde, senão a tailnet
 
 export async function carregaPar(): Promise<Par | null> {
   const raw = await SecureStore.getItemAsync("forja");
   par = raw ? JSON.parse(raw) : null;
+  atual = par?.url ?? par?.lan ?? "";
+  if (par) await escolheBase();
   return par;
 }
 
 export async function salvaPar(p: Par | null) {
   par = p;
+  atual = p?.url ?? p?.lan ?? "";
   if (p) await SecureStore.setItemAsync("forja", JSON.stringify(p));
   else await SecureStore.deleteItemAsync("forja");
 }
 
-export const base = () => par?.url ?? "";
+export const base = () => atual;
+export const viaLan = () => !!par?.lan && atual === par.lan;
+/** Token na URL, para o que não manda header (<Image>, vídeo no WebView, link no navegador). Na rede local o
+ * PC exige o token em toda rota; pela tailnet o parâmetro é ignorado. */
+export const comToken = (url: string) => `${url}${url.includes("?") ? "&" : "?"}t=${par?.token ?? ""}`;
+
+async function info(u: string, ms: number): Promise<{ lan?: string | null } | null> {
+  const ac = new AbortController();
+  const t = setTimeout(() => ac.abort(), ms);
+  try {
+    const r = await fetch(`${u}/api/mobile`, { headers: { "X-Forja-Token": par?.token ?? "" }, signal: ac.signal });
+    return r.ok ? await r.json() : null;
+  } catch { return null; } finally { clearTimeout(t); }
+}
+
+/** Rede local primeiro (em casa, sem VPN), tailnet se ela não responder. Chamada ao abrir, ao voltar para o app
+ * e quando uma requisição cai. O IP da rede local vem do PC a cada escolha (o DHCP pode trocar). */
+let escolhendo: Promise<void> | null = null;
+export function escolheBase(): Promise<void> {
+  return (escolhendo ??= (async () => {
+    if (!par) return;
+    let i = par.lan ? await info(par.lan, 1500) : null;
+    if (i) atual = par.lan!;
+    else if (par.url) { atual = par.url; i = await info(par.url, 6000); }
+    if (i && (i.lan ?? null) !== (par.lan ?? null) && (i.lan || par.url)) await salvaPar({ ...par, lan: i.lan ?? null });
+    if (i && par.lan && atual !== par.lan && (await info(par.lan, 1500))) atual = par.lan; // IP novo já responde
+  })().finally(() => { escolhendo = null; }));
+}
 
 /** Sem tailnet (Tailscale do celular desligado, PC dormindo) o fetch ficava pendurado para sempre e a tela
  * mostrava "nenhuma conversa" em vez de um erro. O limite vale só até chegarem os cabeçalhos: o POST /run
  * responde com um SSE que não termina, e o long-poll do terminal pede um limite maior (`espera`). */
-async function req<T>(path: string, init?: { method?: string; body?: unknown; espera?: number }): Promise<T> {
+async function req<T>(path: string, init?: { method?: string; body?: unknown; espera?: number; repetiu?: boolean }): Promise<T> {
   const ac = new AbortController();
   const limite = setTimeout(() => ac.abort(), init?.espera ?? 12000);
   let r;
@@ -36,7 +67,10 @@ async function req<T>(path: string, init?: { method?: string; body?: unknown; es
       signal: ac.signal,
     });
   } catch (e: any) {
-    throw new Error(ac.signal.aborted ? "Sem resposta do PC. O Tailscale está ligado neste celular e no PC?" : e.message);
+    // Saiu de casa (a rede local sumiu) ou voltou: escolhe o endereço de novo e repete uma vez.
+    const antes = atual;
+    if (!init?.repetiu) { await escolheBase(); if (atual !== antes) return req<T>(path, { ...init, repetiu: true }); }
+    throw new Error(ac.signal.aborted ? "Sem resposta do PC. Está na mesma rede, ou o Tailscale está ligado neste celular e no PC?" : e.message);
   } finally {
     clearTimeout(limite);
   }
@@ -134,7 +168,7 @@ export async function imagemComToken(path: string): Promise<string> {
 
 /** Imagem gerada ou de referência: rota sem token (main.py SEM_TOKEN). */
 export const urlImagem = (path: string, v = "") =>
-  `${base()}/api/local/image/file?path=${encodeURIComponent(path)}${v ? `&v=${encodeURIComponent(v)}` : ""}`;
+  comToken(`${base()}/api/local/image/file?path=${encodeURIComponent(path)}${v ? `&v=${encodeURIComponent(v)}` : ""}`);
 
 export type Msg = {
   id: number; role: string; content: string | null; thinking?: string | null; name?: string | null;

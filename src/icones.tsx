@@ -39,6 +39,7 @@ export const Novo = (p: P) => <Icone {...p}><Path d="M12 4H6a2 2 0 00-2 2v12a2 2
 export const Codigo = (p: P) => <Icone {...p}><Path d="M16 18l6-6-6-6M8 6l-6 6 6 6" /></Icone>;
 export const Divide = (p: P) => <Icone {...p}><Path d="M16 3h5v5M8 3H3v5M21 3l-7.5 7.5M3 3l7.5 7.5M12 12v9" /></Icone>;
 export const Pasta = (p: P) => <Icone {...p}><Path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V7z" /></Icone>;
+export const Filme = (p: P) => <Icone {...p}><Rect x={2} y={5} width={15} height={14} rx={2} /><Path d="M17 10l5-3v10l-5-3z" /></Icone>;
 export const Imagem = (p: P) => <Icone {...p}><Rect x={3} y={4} width={18} height={16} rx={2} /><Circle cx={9} cy={10} r={2} /><Path d="M21 16l-5-5-9 9" /></Icone>;
 export const Balanca = (p: P) => <Icone {...p}><Path d="M12 3v18M5 21h14M5 7h14M5 7l-3 7a3 3 0 006 0L5 7zM19 7l-3 7a3 3 0 006 0l-3-7" /></Icone>;
 export const Info = (p: P) => <Icone {...p}><Circle cx={12} cy={12} r={9} /><Path d="M12 11v5M12 8h.01" /></Icone>;

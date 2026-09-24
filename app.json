@@ -45,7 +45,15 @@
           ]
         }
       ],
-      "expo-sharing"
+      "expo-sharing",
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "usesCleartextTraffic": true
+          }
+        }
+      ]
     ],
     "backgroundColor": "#171717",
     "extra": {
@@ -53,6 +61,7 @@
         "projectId": "935a7b22-0ce3-4e9a-a670-ccd02e361ea2"
       }
     },
-    "owner": "cantarutti"
+    "owner": "cantarutti",
+    "scheme": "forja"
   }
 }

@@ -1,7 +1,7 @@
 import { createContext, useContext } from "react";
 import { Image, Pressable, Text, View } from "react-native";
 import Svg, { Path, Rect, Text as SvgText } from "react-native-svg";
-import { base } from "./api";
+import { base, comToken } from "./api";
 import { c } from "./tema";
 
 export type Anexo = { path: string; name: string; size: number; mime: string; kind: string; local?: string };
@@ -49,7 +49,7 @@ export function CartaoAnexo({ a, onRemover }: { a: Anexo; onRemover?: () => void
   const conv = useContext(ConvDoAnexo);
   const t = tipoDe(a);
   const img = ehImagem(a);
-  const fonte = a.local ?? (conv != null ? `${base()}/api/files?path=${encodeURIComponent(a.path)}&conv=${conv}` : null);
+  const fonte = a.local ?? (conv != null ? comToken(`${base()}/api/files?path=${encodeURIComponent(a.path)}&conv=${conv}`) : null);
   return (
     <Pressable onPress={onRemover} disabled={!onRemover}
                style={{ flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: c.raised, borderColor: c.line, borderWidth: 1,

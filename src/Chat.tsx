@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createContext, memo, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, AppState, FlatList, Keyboard, Modal, useWindowDimensions, Pressable, Text, TextInput, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as DocumentPicker from "expo-document-picker";
@@ -6,7 +6,7 @@ import { api, type Aprovacao, enviaArquivo, lerAjustes, type Live, type Msg, sal
 import { pergunta as dialogo } from "./Dialogo";
 import { type Anexo, CartaoAnexo, ConvDoAnexo } from "./Anexo";
 import Entrada, { type Ajustes, type Contexto } from "./Entrada";
-import { Abaixo, Cerebro, Cubo, Enviar, Escudo, Globo, Parar, Pasta as IconePasta, Relogio, Seta } from "./icones";
+import { Abaixo, Cerebro, Cubo, Enviar, Escudo, Globo, Imagem, Parar, Pasta as IconePasta, Relogio, Seta } from "./icones";
 import Markdown, { Codigo } from "./Markdown";
 import { LogoMarca } from "./Logo";
 import Site, { type Servidor } from "./Site";
@@ -124,9 +124,12 @@ export type Conv = { id: number; title: string; kind?: string; workspace?: strin
 
 /** Conversa ao vivo: mensagens salvas + SSE do run ativo, cards de aprovação e caixa de prompt.
  * Sem `conv` é uma conversa nova (tela "Como posso ajudar?"): ela nasce no backend no primeiro envio. */
-export default function Chat({ conv, kind, workspace, onCriada, onTelaCheia, pasta, onPasta, onTurno }:
+/** Botão da skill gerar-imagens (resultado de `imagens_pendentes`): abre a conversa de Imagens do projeto. */
+const AbreSlots = createContext<(toolMsgId: number) => void>(() => {});
+
+export default function Chat({ conv, kind, workspace, onCriada, onTelaCheia, pasta, onPasta, onTurno, onAbreImagens }:
   { conv: Conv | null; kind: string; workspace?: string | null; onCriada: (c: Conv) => void; onTelaCheia: (sim: boolean) => void;
-    pasta?: string; onPasta: () => void; onTurno: () => void }) {
+    pasta?: string; onPasta: () => void; onTurno: () => void; onAbreImagens?: (c: Conv) => void }) {
   const [convId, setConvId] = useState<number | null>(conv?.id ?? null);
   const [msgs, setMsgs] = useState<Msg[]>([]);
   const [draft, setDraft] = useState("");
@@ -343,6 +346,13 @@ export default function Chat({ conv, kind, workspace, onCriada, onTelaCheia, pas
     };
   }, [msgs, ctxVivo, runId]);
 
+  // Cria (ou reaproveita) a conversa de Imagens do projeto com os slots; gerar é lá, com o modelo de imagem.
+  const abreSlots = useCallback((mid: number) => {
+    api.post<Conv>(`/imagens/slots/${mid}/conversa`, {})
+      .then((c) => onAbreImagens?.({ ...c, title: c.title ?? "Imagens do site" }))
+      .catch((e) => setErro(e.message));
+  }, [onAbreImagens]);
+
   function compactar() {
     if (convId == null) return;
     // Usa o modelo para resumir o histórico antigo: confirma antes (pode carregar a GPU).
@@ -379,6 +389,7 @@ export default function Chat({ conv, kind, workspace, onCriada, onTelaCheia, pas
     {siteAberto && <Site nome={aba} caminho={ultimoCaminho(msgs, sites.find((x) => x.name === aba)!.url)} />}
     <View style={{ flex: 1, paddingBottom: teclado, display: siteAberto ? "none" : "flex" }}>
       <ConvDoAnexo.Provider value={convId}>
+      <AbreSlots.Provider value={abreSlots}>
       <FlatList
         ref={lista}
         data={visiveis}
@@ -427,10 +438,12 @@ export default function Chat({ conv, kind, workspace, onCriada, onTelaCheia, pas
               </View>
             )}
             {aprov.map((a) => <CardAprovacao key={a.call.id} a={a} onDecide={decide} />)}
-            {!!erro && <Text style={[s.muted, { color: c.red }]}>{erro}</Text>}
+            {/* log do llama-server tem dezenas de linhas: as primeiras bastam; tocar limpa */}
+            {!!erro && <Text style={[s.muted, { color: c.red }]} numberOfLines={4} onPress={() => setErro("")}>{erro}</Text>}
           </View>
         }
       />
+      </AbreSlots.Provider>
       </ConvDoAnexo.Provider>
       {longe && (
         <Pressable onPress={() => { noFim.current = true; setLonge(false); lista.current?.scrollToEnd({ animated: true }); }}
@@ -439,7 +452,7 @@ export default function Chat({ conv, kind, workspace, onCriada, onTelaCheia, pas
           <Abaixo size={18} />
         </Pressable>
       )}
-      <Entrada kind={kind} teclado={teclado > 0} rodando={!!runId} perm={perm} onPerm={trocaPerm} onEnvia={envia}
+      <Entrada kind={kind} conv={convId} teclado={teclado > 0} rodando={!!runId} perm={perm} onPerm={trocaPerm} onEnvia={envia}
                ajustes={ajustes} onAjustes={mudaAjustes} ctx={ctx} podeCompactar={!runId && convId != null} onCompactar={compactar} anexos={anexos} enviando={enviando} onAnexar={anexar}
                onTiraAnexo={(pth) => setAnexos((x) => x.filter((a) => a.path !== pth))}
              onPara={() => runId && api.post(`/runs/${runId}/stop`).catch((e) => setErro(e.message))} />
@@ -487,7 +500,7 @@ const Segmento = memo(function Segmento({ seg, resultados, pendentes }: { seg: S
 });
 
 const EVENTO: Record<string, [string, string, string]> = { // título, borda, texto (EventNotice do desktop)
-  warning: ["Aviso", "#78350f", "#fde68a"], error: ["Erro", "#7f1d1d", "#fecaca"],
+  warning: ["Aviso", "#78350f", "#fde68a"], error: ["Erro", "#7f1d1d", "#fecaca"], imagens: ["Imagens do site", c.line, c.muted],
   nudge: ["Lembrete automático ao modelo", "#0c4a6e", "#bae6fd"], info: ["Info", c.line, c.muted],
 };
 
@@ -586,13 +599,29 @@ function Grupo({ pecas, resultados, pendentes }: { pecas: Peca[]; resultados: Ma
   const resumo = (calls.length > 1 ? `${cabeca}, usou ${calls.length} ferramentas` : cabeca) +
     (falhas ? ` (${falhas} falha${falhas > 1 ? "s" : ""})` : "");
   const alterna = (id: string) => setDetalhe(detalhe === id ? null : id);
+  const abreSlots = useContext(AbreSlots);
   return (
-    <View>
+    <View style={{ gap: 8 }}>
       <Pressable onPress={() => setAberto(!aberto)} hitSlop={6} style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
         {!calls.length && !soNotas && <Cerebro size={14} color={c.faint} />}
         <Text style={[s.faint, { flexShrink: 1, fontSize: 14 }]} numberOfLines={1}>{resumo}</Text>
         {aberto ? <Abaixo size={14} color={c.faint} /> : <Seta size={14} color={c.faint} />}
       </Pressable>
+      {/* Fora do recolhível, como no desktop (MessageView ActivityGroup): a fila de imagens do site. */}
+      {calls.map((k) => {
+        const r = resultados.get(k.id);
+        const sl = r?.meta?.imagens_pendentes;
+        if (!r || !sl?.slots?.length) return null;
+        return (
+          <View key={`sl${k.id}`} style={{ gap: 6 }}>
+            <Pressable onPress={() => abreSlots(r.id)} style={[s.btn, { alignSelf: "flex-start", flexDirection: "row", gap: 8, alignItems: "center" }]}>
+              <Imagem size={16} color={c.bg} />
+              <Text style={s.btnTxt}>{sl.geradas ? `Ver as ${sl.slots.length} imagens` : `Gerar ${sl.slots.length} imagens`}</Text>
+            </Pressable>
+            <Text style={[s.faint, { fontSize: 12 }]} numberOfLines={2}>{sl.slots.map((x: any) => x.nome).join(" · ")}</Text>
+          </View>
+        );
+      })}
       {aberto && (
         <View style={{ marginTop: 8, marginLeft: 4, paddingLeft: 12, borderLeftWidth: 1, borderLeftColor: c.line, gap: 10 }}>
           {pecas.map((p) => {

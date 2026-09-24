@@ -4,13 +4,15 @@ import * as Device from "expo-device";
 import * as Notifications from "expo-notifications";
 import { StatusBar } from "expo-status-bar";
 import { Component, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Animated, BackHandler, Platform, Pressable, RefreshControl, ScrollView, SectionList, Text, TextInput,
+import { Animated, AppState, BackHandler, Linking, Platform, Pressable, RefreshControl, ScrollView, SectionList, Text, TextInput,
          useWindowDimensions, View } from "react-native";
 import { SafeAreaProvider, useSafeAreaInsets } from "react-native-safe-area-context";
-import { api, base, carregaPar, salvaPar } from "./src/api";
+import { api, base, carregaPar, escolheBase, salvaPar, viaLan } from "./src/api";
 import Chat, { type Conv } from "./src/Chat";
+import CarregandoModelo from "./src/Carregando";
 import Comparar from "./src/Comparar";
-import { Abaixo, Balanca, Balao, Busca, Chip, Codigo, Divide, Globo, Imagem, Info, Menu, Novo, PainelDir, Pasta as IconePasta, Prancheta,
+import Video from "./src/Video";
+import { Abaixo, Balanca, Balao, Busca, Chip, Codigo, Divide, Globo, Filme, Imagem, Info, Menu, Novo, PainelDir, Pasta as IconePasta, Prancheta,
          Pulso, Ramo, Sair, Seta, Term, Voltar } from "./src/icones";
 import Imagens from "./src/Imagens";
 import Maestro from "./src/Maestro";
@@ -57,13 +59,14 @@ class Protecao extends Component<{ children: ReactNode; onVoltar: () => void }, 
   }
 }
 
-type Pagina = "chat" | "agent" | "maestro" | "imagem" | "comparar" | "pesquisa" | "sites";
+type Pagina = "chat" | "agent" | "maestro" | "imagem" | "video" | "comparar" | "pesquisa" | "sites";
 // As seções do Forja Desktop (Controls.tsx, SectionTabs), na mesma ordem, + os sites que o agente subiu.
 const PAGINAS: { id: Pagina; rotulo: string; Icone: typeof Balao }[] = [
   { id: "chat", rotulo: "Chat", Icone: Balao },
   { id: "agent", rotulo: "Agente", Icone: Codigo },
   { id: "maestro", rotulo: "Maestro", Icone: Divide },
   { id: "imagem", rotulo: "Imagens", Icone: Imagem },
+  { id: "video", rotulo: "Vídeo", Icone: Filme },
   { id: "comparar", rotulo: "Comparar", Icone: Balanca },
   { id: "pesquisa", rotulo: "Pesquisa", Icone: Busca },
   { id: "sites", rotulo: "Sites", Icone: Globo },
@@ -78,6 +81,7 @@ export default function App() {
   return (
     <SafeAreaProvider>
       <Raiz />
+      <CarregandoModelo />
       <Dialogos />
     </SafeAreaProvider>
   );
@@ -106,6 +110,33 @@ function Raiz() {
 
   useEffect(() => {
     carregaPar().then((p) => { setPareado(!!p); if (p) carregaConvs(); });
+    // Voltou para o app (talvez saiu ou chegou em casa): rede local se responder, senão a tailnet.
+    const sub = AppState.addEventListener("change", (st) => { if (st === "active") escolheBase(); });
+    return () => sub.remove();
+  }, []);
+
+  // Link de pareamento (forja://parear?c=<JSON do QR>), para parear sem câmera: a aba Celular copia o link.
+  // Confirma antes: um link qualquer não troca o PC pareado sem você ver para onde vai.
+  useEffect(() => {
+    const trata = (url: string | null) => {
+      const m = url?.match(/^forja:\/\/parear\?c=(.+)$/);
+      let p: any = null;
+      try { p = m && JSON.parse(decodeURIComponent(m[1])); } catch { return; }
+      if (!p?.token || !(p.url || p.lan)) return;
+      pergunta("Parear com este PC?", [p.lan, p.url].filter(Boolean).join("\n"), [
+        { texto: "Cancelar", estilo: "cancelar" },
+        { texto: "Parear", acao: async () => {
+          await salvaPar({ url: p.url ?? null, lan: p.lan ?? null, token: p.token });
+          await escolheBase();
+          await registraPush().catch(() => {});
+          setPareado(true);
+          carregaConvs();
+        } },
+      ]);
+    };
+    Linking.getInitialURL().then(trata);
+    const sub = Linking.addEventListener("url", (e) => trata(e.url));
+    return () => sub.remove();
   }, []);
 
   const abre = (c: Conv | null, p: Pagina = pagina, fecha = true) => {
@@ -186,7 +217,9 @@ function Raiz() {
           {pagina === "sites" ? (
             site ? <Site nome={site} /> : <Servidores abre={setSite} />
           ) : pagina === "imagem" ? (
-            <Imagens key={sessao} conv={conv} onCriada={criada} onTurno={turno} />
+            <Imagens key={sessao} conv={conv} onCriada={criada} onTurno={turno} onAbreChat={(c, k) => abre(c, k as Pagina)} />
+          ) : pagina === "video" ? (
+            <Video key={sessao} conv={conv} onCriada={criada} onTurno={turno} />
           ) : pagina === "comparar" ? (
             <Comparar key={sessao} conv={conv} onCriada={criada} onTurno={turno} />
           ) : pagina === "pesquisa" ? (
@@ -198,7 +231,7 @@ function Raiz() {
           ) : (
             <Chat key={sessao} conv={conv} kind={pagina} workspace={workspace} onTelaCheia={setTelaCheia}
                   pasta={comPasta ? pastaAtual || "Forja (padrão)" : undefined} onPasta={() => setSeletor(true)}
-                  onCriada={criada} onTurno={turno} />
+                  onCriada={criada} onTurno={turno} onAbreImagens={(c) => { carregaConvs(); abre(c, "imagem"); }} />
           )}
         </Protecao>
       </View>
@@ -244,7 +277,8 @@ function Gaveta({ aberta, fecha, pagina, convs, atual, erro, onPagina, onConv, o
     }
     return [...mapa].map(([title, data]) => ({ title, data }));
   }, [convs, kindPag, q]);
-  const pc = base().replace(/^https?:\/\//, "").split(".")[0];
+  const host = base().replace(/^https?:\/\//, "").split(":")[0];
+  const pc = /^\d+\.\d+\.\d+\.\d+$/.test(host) ? host : host.split(".")[0]; // IP da rede local inteiro; na tailnet, o nome da máquina
   const desparear = () =>
     pergunta("Desparear", `Este celular perde o acesso a ${pc || "este PC"} até ler o QR de novo.`,
       [{ texto: "Cancelar", estilo: "cancelar" }, { texto: "Desparear", estilo: "perigo", acao: onDesparear }]);
@@ -306,7 +340,7 @@ function Gaveta({ aberta, fecha, pagina, convs, atual, erro, onPagina, onConv, o
           </View>
           <View style={{ flex: 1 }}>
             <Text style={{ color: c.fg, fontSize: 15, fontWeight: "600" }} numberOfLines={1}>{pc || "Forja"}</Text>
-            <Text style={[s.faint, !!erro && { color: c.red }]}>{erro ? "Sem conexão com o PC" : "Conectado pela tailnet"}</Text>
+            <Text style={[s.faint, !!erro && { color: c.red }]}>{erro ? "Sem conexão com o PC" : viaLan() ? "Conectado pela rede local" : "Conectado pela tailnet"}</Text>
           </View>
           <Sair size={17} color={c.faint} />
         </Pressable>
@@ -376,7 +410,7 @@ function Parear({ onPronto }: { onPronto: () => void }) {
         </View>
         <Text style={[s.txt, { textAlign: "center" }]}>Pareie com o Forja Desktop</Text>
         <Text style={[s.muted, { textAlign: "center", lineHeight: 20 }]}>
-          No PC, abra Configurações → Celular e leia o QR. O PC e este celular precisam estar na mesma conta do Tailscale.
+          No PC, abra Configurações → Celular e leia o QR. Em casa basta a mesma rede Wi‑Fi (com a rede local ligada no PC); fora de casa, o Tailscale.
         </Text>
         <Pressable style={s.btn} onPress={pede}><Text style={s.btnTxt}>Ler QR</Text></Pressable>
       </View>
@@ -388,9 +422,10 @@ function Parear({ onPronto }: { onPronto: () => void }) {
           setLendo(true);
           try {
             const p = JSON.parse(data);
-            if (!p.url || !p.token) throw new Error("Esse QR não é do Forja");
-            await salvaPar({ url: p.url, token: p.token });
-            await api.get("/mobile"); // confere tailnet + token antes de seguir
+            if (!(p.url || p.lan) || !p.token) throw new Error("Esse QR não é do Forja");
+            await salvaPar({ url: p.url ?? null, lan: p.lan ?? null, token: p.token });
+            await escolheBase();
+            await api.get("/mobile"); // confere endereço + token antes de seguir
             await registraPush().catch((e) => setErro(`Sem notificações: ${e.message}`));
             onPronto();
           } catch (e: any) {

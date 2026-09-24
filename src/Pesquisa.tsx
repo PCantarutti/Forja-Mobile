@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Linking, Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { api, base, cancelado, lerAjustes, type Msg, salvaAjustes, streamSSE } from "./api";
+import { api, base, cancelado, comToken, lerAjustes, type Msg, salvaAjustes, streamSSE } from "./api";
 import type { Conv } from "./Chat";
 import { Busca, Cubo, Enviar, Globo, Parar } from "./icones";
 import Markdown from "./Markdown";
@@ -195,7 +195,7 @@ export default function Pesquisa({ conv, onCriada, onAbre, onTurno }:
             {!rodando && estado.status === "pronto" && (
               <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
                 <Pressable style={[s.btn, { flexDirection: "row", gap: 6 }]}
-                           onPress={() => Linking.openURL(`${base()}/api/pesquisa/${estado.message_id}/relatorio`)}>
+                           onPress={() => Linking.openURL(comToken(`${base()}/api/pesquisa/${estado.message_id}/relatorio`))}>
                   <Globo size={15} color="#000" /><Text style={s.btnTxt}>Relatório completo</Text>
                 </Pressable>
                 <Pressable style={s.btnSec} onPress={discutir}><Text style={s.btnSecTxt}>Discutir no chat</Text></Pressable>
