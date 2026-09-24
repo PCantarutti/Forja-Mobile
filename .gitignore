@@ -39,3 +39,15 @@ yarn-error.*
 # generated native folders
 /ios
 /android
+
+# chave privada do Firebase (conta de serviço): nunca commitar
+*firebase-adminsdk*.json
+
+# build local (npm run apk)
+/dist
+*.apk
+gradle-build.log
+build-apk.log
+
+# config do Firebase do app (API key): fora do git; no EAS vai como variável de arquivo
+google-services.json
