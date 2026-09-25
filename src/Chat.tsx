@@ -17,6 +17,7 @@ import { c, mono, s } from "./tema";
 const ACAO: Record<string, string> = {
   run_command: "Executou um comando", read_file: "Leu um arquivo", edit_file: "Editou um arquivo",
   write_file: "Escreveu um arquivo", list_dir: "Olhou a pasta", search: "Procurou no projeto",
+  tree: "Olhou a árvore do projeto", ast: "Leu a estrutura do código", imports: "Conferiu os imports",
   web_search: "Pesquisou na web", fetch_url: "Abriu uma página", delegate_task: "Delegou a um subagente",
   update_tasks: "Atualizou as tarefas", ask_user: "Perguntou ao usuário", run_task: "Despachou uma tarefa",
   plan_feature: "Planejou uma funcionalidade", browser_validate: "Validou uma página",
