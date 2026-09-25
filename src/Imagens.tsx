@@ -15,7 +15,7 @@ import { c, mono, s } from "./tema";
 import { Campo, Chip, Contador, Folha, Lista, Seletor } from "./ui";
 
 // LoteImagem do backend (lotes.py / types.ts do desktop).
-type Img = { path: string; seed: number; model_name?: string; status: string; progress?: number; preview?: string;
+type Img = { path: string; seed: number; model_name?: string; status: string; progress?: number; fase?: string; preview?: string;
              com_previa?: boolean; restante?: number; s_passo?: number; error?: string;
              nome?: string; destino?: string; slot?: string; mid?: number; prompt?: string }; // slot do site (skill gerar-imagens)
 type Slot = { nome: string; caminho: string; rel: string; prompt: string; prompt_base: string; estilo: string; largura: number | null; altura: number | null };
@@ -29,7 +29,8 @@ type Opts = { steps: number; cfg: number; width: number; height: number; sampler
 type Ajustes = { models: string[]; count: number; seed: number; seed_mode: string; opts: Opts };
 // Ampliar: uma imagem de um lote (mid = mensagem dele) ou uma do celular (já enviada ao PC, sem mid).
 type Ampliar = { path: string; mid?: number; w?: number; h?: number };
-type Ampliadores = { no_disco: { path: string; name: string }[] }; // GET /local/video/ampliadores (os ESRGAN no PC)
+// GET /local/video/ampliadores: os modelos no PC. tipo esrgan (rápido) ou seedvr2 (difusão, pelo ComfyUI do PC, minutos)
+type Ampliadores = { no_disco: { path: string; name: string; tipo?: "esrgan" | "seedvr2" }[]; comfy?: { instalado: string } };
 
 // Listas do desktop (ImagensView / LocalPanel).
 const AMOSTRADORES = ["euler_a", "euler", "heun", "dpm2", "dpm++2s_a", "dpm++2m", "dpm++2mv2", "ipndm", "lcm", "ddim_trailing", "tcd",
@@ -195,15 +196,14 @@ export default function Imagens({ conv, onCriada, onTurno, onAbreChat }:
     if (!alvo) return;
     setAmpliar(null);
     setErro("");
-    try {
-      if (alvo.mid != null) await api.post(`/imagens/${alvo.mid}/ampliar`, { path: alvo.path, fator, modelo });
-      else {
-        const id = await garanteConv();
-        if (id == null) return;
-        await api.post(`/imagens/${id}/ampliar-arquivo`, { path: alvo.path, fator, modelo });
-      }
+    // SeedVR2 com modelo de texto na VRAM: o PC responde 409 e a pergunta é a mesma do gerar
+    const id = alvo.mid != null ? null : await garanteConv();
+    if (alvo.mid == null && id == null) return;
+    await comVram(async (confirm) => {
+      if (alvo.mid != null) await api.post(`/imagens/${alvo.mid}/ampliar`, { path: alvo.path, fator, modelo, confirm });
+      else await api.post(`/imagens/${id}/ampliar-arquivo`, { path: alvo.path, fator, modelo, confirm });
       carrega();
-    } catch (e: any) { setErro(e.message); }
+    }, "ampliar");
   }
 
   async function gera() {
@@ -502,7 +502,7 @@ function LoteView({ lote, onVer, onAcao, onReaproveita, onContinua, onBaixar }: 
               {(img.status !== "pronta" || rodando) && !!ROTULO[img.status] && (
                 <View style={{ position: "absolute", left: 6, bottom: 6, right: 6, backgroundColor: "#000b", borderRadius: 8, padding: 6 }}>
                   <Text style={{ color: img.status === "erro" ? c.red : c.fg, fontSize: 12 }} numberOfLines={2}>
-                    {ROTULO[img.status]}{img.status === "gerando" && img.progress != null ? ` ${Math.round(img.progress * 100)}%` : ""}
+                    {img.fase ?? ROTULO[img.status]}{img.status === "gerando" && img.progress != null ? ` ${Math.round(img.progress * 100)}%` : ""}
                     {img.status === "gerando" && img.restante ? ` · ~${Math.ceil(img.restante)}s` : ""}{img.error ? ` · ${img.error}` : ""}
                   </Text>
                   {img.status === "gerando" && (
@@ -603,16 +603,19 @@ function FolhaAmpliar({ alvo, onFecha, onAmpliar, onErro }:
   useEffect(() => {
     if (alvo) api.get<Ampliadores>("/local/video/ampliadores").then(setCat).catch((e) => onErro(e.message));
   }, [alvo]);
-  const escolhido = modelo ?? cat?.no_disco[0]?.path ?? "";
+  // SeedVR2 só com o ComfyUI instalado no PC; e nunca é o padrão (leva minutos)
+  const metodos = (cat?.no_disco ?? []).filter((m) => m.tipo !== "seedvr2" || !!cat?.comfy?.instalado);
+  const escolhido = modelo ?? metodos.find((m) => m.tipo !== "seedvr2")?.path ?? "";
   const tam = (f: number) => (alvo?.w && alvo.h ? ` · ${alvo.w * f}×${alvo.h * f}` : "");
   return (
     <Folha aberta={!!alvo} titulo="Ampliar imagem" onFecha={onFecha}>
       {!cat ? <ActivityIndicator color={c.muted} /> : (
         <>
-          <Campo rotulo="Método" dica={cat.no_disco.length ? "IA roda na GPU do PC; Lanczos é instantâneo, sem inventar detalhe."
-                                      : "Sem modelo de IA no PC: baixe um RealESRGAN em IA local › Vídeo, no desktop."}>
+          <Campo rotulo="Método" dica={metodos.length ? "IA roda na GPU do PC; Lanczos é instantâneo, sem inventar detalhe."
+                                      : "Sem modelo de IA no PC: baixe um na tela Imagens do desktop (Ampliar › Baixar o que falta)."}>
             <Lista<string> valor={escolhido} onEscolhe={setModelo} opcoes={[
-              ...cat.no_disco.map((m) => ({ id: m.path, rotulo: m.name, dica: "IA (ESRGAN)" })),
+              ...metodos.map((m) => ({ id: m.path, rotulo: m.name,
+                dica: m.tipo === "seedvr2" ? "IA pesada (SeedVR2): mais detalhe, leva minutos" : "IA (ESRGAN)" })),
               { id: "", rotulo: "Lanczos", dica: "Rápido, sem IA" },
             ]} />
           </Campo>
