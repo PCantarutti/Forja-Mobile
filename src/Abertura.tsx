@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Animated, Pressable, StyleSheet, useWindowDimensions } from "react-native";
+import { Animated, Pressable, StyleSheet, Vibration, useWindowDimensions } from "react-native";
 import Svg, { Circle, Defs, G, Mask, Path, RadialGradient, Stop } from "react-native-svg";
 import { PECAS } from "./aberturaPecas";
 import { TEXTO } from "./Logo";
@@ -37,6 +37,7 @@ export default function Abertura({ onFim }: { onFim: () => void }) {
   const [t, setT] = useState(0);
   const saida = useRef(new Animated.Value(1)).current;
   const fim = useRef(false);
+  const bateu = useRef(false);
   const { width, height } = useWindowDimensions();
   const acaba = () => {
     if (fim.current) return;
@@ -48,6 +49,8 @@ export default function Abertura({ onFim }: { onFim: () => void }) {
     const t0 = Date.now();
     const passo = () => {
       const s = (Date.now() - t0) / 1000;
+      // Vibra uma vez no golpe: pancada forte (70 ms) e um toque curto no repique do martelo.
+      if (s >= T0 && !bateu.current) { bateu.current = true; Vibration.vibrate([0, 70, 90, 25]); }
       setT(Math.min(s, DUR));
       if (s < DUR) raf = requestAnimationFrame(passo); else acaba();
     };
