@@ -241,6 +241,21 @@ export default function Chat({ conv, kind, workspace, onCriada, onTelaCheia, pas
     return () => { sub.remove(); abort.current?.abort(); };
   }, [carrega]);
 
+  // Turno que este aparelho não disparou (o PC, na mesma conversa): o /activity diz o id do último turno de
+  // cada conversa; id novo com a conversa parada aqui = recarrega, e o carrega já segue o stream se rodando.
+  const ultimoTurno = useRef<string | null | undefined>(undefined);
+  useEffect(() => {
+    if (convId == null || runId) return;
+    const olha = () => api.get<{ conversations: { id: number; run?: string }[] }>("/activity").then((a) => {
+      const turno = a.conversations.find((x) => x.id === convId)?.run ?? null;
+      if (ultimoTurno.current !== undefined && turno && turno !== ultimoTurno.current) carrega();
+      ultimoTurno.current = turno;
+    }).catch(() => {});
+    olha();
+    const t = setInterval(olha, 3000);
+    return () => clearInterval(t);
+  }, [convId, runId, carrega]);
+
   /** Conversa nova nasce no backend no primeiro envio (ou no primeiro anexo, que precisa da pasta dela). */
   async function garanteConv(): Promise<number> {
     if (convId != null) return convId;
