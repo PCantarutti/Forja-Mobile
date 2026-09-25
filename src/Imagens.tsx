@@ -30,9 +30,9 @@ type LocalImg = { image: Record<string, any>; image_models: ModeloImg[]; runtime
 type Opts = { steps: number; cfg: number; width: number; height: number; sampler: string; negative: string };
 type Ajustes = { models: string[]; count: number; seed: number; seed_mode: string; opts: Opts };
 // Ampliar: uma imagem de um lote (mid = mensagem dele) ou uma do celular (já enviada ao PC, sem mid).
-type Ampliar = { path: string; mid?: number; w?: number; h?: number };
+type Ampliar = { path: string; mid?: number; w?: number; h?: number; prompt?: string }; // prompt: o que gerou a imagem
 // GET /local/video/ampliadores: os modelos no PC. tipo esrgan (rápido) ou seedvr2 (difusão, pelo ComfyUI do PC, minutos)
-type Ampliadores = { no_disco: { path: string; name: string; tipo?: "esrgan" | "seedvr2" | "spandrel" }[]; comfy?: { instalado: string } };
+type Ampliadores = { no_disco: { path: string; name: string; tipo?: "esrgan" | "seedvr2" | "spandrel" | "redesenhar" }[]; comfy?: { instalado: string } };
 
 // Listas do desktop (ImagensView / LocalPanel).
 const AMOSTRADORES = ["euler_a", "euler", "heun", "dpm2", "dpm++2s_a", "dpm++2m", "dpm++2mv2", "ipndm", "lcm", "ddim_trailing", "tcd",
@@ -206,7 +206,7 @@ export default function Imagens({ conv, onCriada, onTurno, onAbreChat }:
     } catch (e: any) { setErro(e.message); }
   }
 
-  async function amplia(fator: number, modelo: string) {
+  async function amplia(fator: number, modelo: string, extra: { prompt?: string; forca?: number } = {}) {
     const alvo = ampliar;
     if (!alvo) return;
     setAmpliar(null);
@@ -215,8 +215,8 @@ export default function Imagens({ conv, onCriada, onTurno, onAbreChat }:
     const id = alvo.mid != null ? null : await garanteConv();
     if (alvo.mid == null && id == null) return;
     await comVram(async (confirm) => {
-      if (alvo.mid != null) await api.post(`/imagens/${alvo.mid}/ampliar`, { path: alvo.path, fator, modelo, confirm });
-      else await api.post(`/imagens/${id}/ampliar-arquivo`, { path: alvo.path, fator, modelo, confirm });
+      if (alvo.mid != null) await api.post(`/imagens/${alvo.mid}/ampliar`, { path: alvo.path, fator, modelo, confirm, ...extra });
+      else await api.post(`/imagens/${id}/ampliar-arquivo`, { path: alvo.path, fator, modelo, confirm, ...extra });
       carrega();
     }, "ampliar");
   }
@@ -464,7 +464,8 @@ export default function Imagens({ conv, onCriada, onTurno, onAbreChat }:
       <FolhaAmpliar alvo={ampliar} onFecha={() => setAmpliar(null)} onAmpliar={amplia} onErro={setErro} />
 
       <Visor img={ver} onFecha={() => setVer(null)} onBaixar={baixa}
-             onAmpliar={(i, w, h) => { setVer(null); setAmpliar({ path: i.path, mid: i.mid, w, h }); }}
+             onAmpliar={(i, w, h) => { setVer(null);
+               setAmpliar({ path: i.path, mid: i.mid, w, h, prompt: lotes.find((l) => l.msg.id === i.mid)?.user?.content ?? undefined }); }}
              onEditar={origem ? undefined : (p) => { setRefs((x) => (x.includes(p) || x.length >= MAX_REFS ? x : [...x, p])); setVer(null); }}
              onSemente={origem ? undefined : (n) => { muda({ seed: n, seed_mode: "fixa" }); setVer(null); }}
              onUsarNoSite={ver && chaveSlot(ver) && !ver.destino ? () => { const v = ver; setVer(null); acao(`/imagens/${convId}/escolher`, { slot: chaveSlot(v), path: v.path }); } : undefined} />
@@ -617,17 +618,23 @@ function Visor({ img, onFecha, onEditar, onSemente, onBaixar, onUsarNoSite, onAm
 
 /** Método (ESRGAN que está no PC, ou Lanczos) e fator; como o PainelAmpliar do desktop. */
 function FolhaAmpliar({ alvo, onFecha, onAmpliar, onErro }:
-  { alvo: Ampliar | null; onFecha: () => void; onAmpliar: (fator: number, modelo: string) => void; onErro: (e: string) => void }) {
+  { alvo: Ampliar | null; onFecha: () => void; onAmpliar: (fator: number, modelo: string, extra?: { prompt?: string; forca?: number }) => void;
+    onErro: (e: string) => void }) {
   const [cat, setCat] = useState<Ampliadores | null>(null);
   const [modelo, setModelo] = useState<string | null>(null);
   const [fator, setFator] = useState<"2" | "4">("2");
+  const [prompt, setPrompt] = useState("");
+  const [forca, setForca] = useState<"0.3" | "0.4" | "0.5" | "0.6">("0.4");
   useEffect(() => {
-    if (alvo) api.get<Ampliadores>("/local/video/ampliadores").then(setCat).catch((e) => onErro(e.message));
+    if (!alvo) return;
+    api.get<Ampliadores>("/local/video/ampliadores").then(setCat).catch((e) => onErro(e.message));
+    setPrompt(alvo.prompt ?? "");
   }, [alvo]);
   // SeedVR2 e DAT/HAT (spandrel) só com o ComfyUI instalado no PC; o padrão é sempre um ESRGAN (rápido, leve)
   const metodos = (cat?.no_disco ?? []).filter((m) => (m.tipo ?? "esrgan") === "esrgan" || !!cat?.comfy?.instalado);
   const escolhido = modelo ?? metodos.find((m) => (m.tipo ?? "esrgan") === "esrgan")?.path ?? "";
   const tam = (f: number) => (alvo?.w && alvo.h ? ` · ${alvo.w * f}×${alvo.h * f}` : "");
+  const redesenha = metodos.find((m) => m.path === escolhido)?.tipo === "redesenhar";
   return (
     <Folha aberta={!!alvo} titulo="Ampliar imagem" onFecha={onFecha}>
       {!cat ? <ActivityIndicator color={c.muted} /> : (
@@ -635,8 +642,9 @@ function FolhaAmpliar({ alvo, onFecha, onAmpliar, onErro }:
           <Campo rotulo="Método" dica={metodos.length ? "IA roda na GPU do PC; Lanczos é instantâneo, sem inventar detalhe."
                                       : "Sem modelo de IA no PC: baixe um na tela Imagens do desktop (Ampliar › Baixar o que falta)."}>
             <Lista<string> valor={escolhido} onEscolhe={setModelo} opcoes={[
-              ...metodos.map((m) => ({ id: m.path, rotulo: m.name,
+              ...metodos.map((m) => ({ id: m.path, rotulo: m.tipo === "redesenhar" ? `Redesenhar com ${m.name}` : m.name,
                 dica: m.tipo === "seedvr2" ? "IA pesada (SeedVR2): mais detalhe, leva minutos"
+                  : m.tipo === "redesenhar" ? "Refaz a imagem em alta resolução (muda a imagem), leva minutos"
                   : m.tipo === "spandrel" ? "IA (DAT/HAT, pelo ComfyUI): mais fiel, segundos" : "IA (ESRGAN)" })),
               { id: "", rotulo: "Lanczos", dica: "Rápido, sem IA" },
             ]} />
@@ -644,7 +652,19 @@ function FolhaAmpliar({ alvo, onFecha, onAmpliar, onErro }:
           <Campo rotulo="Fator">
             <Seletor<"2" | "4"> opcoes={[{ id: "2", rotulo: `2×${tam(2)}` }, { id: "4", rotulo: `4×${tam(4)}` }]} valor={fator} onMuda={setFator} />
           </Campo>
-          <Pressable style={s.btn} onPress={() => onAmpliar(Number(fator), escolhido)}>
+          {redesenha && (
+            <>
+              <Campo rotulo="O que desenhar" dica="Em inglês funciona melhor.">
+                <TextInput style={[s.input, { minHeight: 70 }]} value={prompt} onChangeText={setPrompt} multiline
+                           placeholder="Descreva a imagem" placeholderTextColor={c.faint} />
+              </Campo>
+              <Campo rotulo="Força" dica="Quanto o modelo pode mudar: 0,3 é fiel e só limpa; 0,6 reimagina a textura.">
+                <Seletor<"0.3" | "0.4" | "0.5" | "0.6"> valor={forca} onMuda={setForca}
+                  opcoes={[{ id: "0.3", rotulo: "0,3 fiel" }, { id: "0.4", rotulo: "0,4" }, { id: "0.5", rotulo: "0,5" }, { id: "0.6", rotulo: "0,6 reimagina" }]} />
+              </Campo>
+            </>
+          )}
+          <Pressable style={s.btn} onPress={() => onAmpliar(Number(fator), escolhido, redesenha ? { prompt, forca: Number(forca) } : {})}>
             <Text style={s.btnTxt}>Ampliar {fator}×</Text>
           </Pressable>
         </>
