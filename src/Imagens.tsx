@@ -463,7 +463,7 @@ export default function Imagens({ conv, onCriada, onTurno, onAbreChat }:
 
       <FolhaAmpliar key={ampliar?.path ?? ""} alvo={ampliar} onFecha={() => setAmpliar(null)} onAmpliar={amplia} onErro={setErro} />
 
-      <Visor img={ver} onFecha={() => setVer(null)} onBaixar={baixa}
+      <Visor img={ver} detalhe={redesenhoDe(lotes.find((l) => l.msg.id === ver?.mid)?.msg)} onFecha={() => setVer(null)} onBaixar={baixa}
              onAmpliar={(i, w, h) => { setVer(null);
                setAmpliar({ path: i.path, mid: i.mid, w, h, prompt: promptDaImagem(lotes.find((l) => l.msg.id === i.mid)?.user) }); }}
              onEditar={origem ? undefined : (p) => { setRefs((x) => (x.includes(p) || x.length >= MAX_REFS ? x : [...x, p])); setVer(null); }}
@@ -589,8 +589,14 @@ function LoteView({ lote, onVer, onAcao, onReaproveita, onContinua, onBaixar }: 
 /** Imagem em tela cheia: editar a partir dela (vira referência) ou repetir a semente. */
 const chaveSlot = (i: Img) => i.destino ?? i.slot;
 
-function Visor({ img, onFecha, onEditar, onSemente, onBaixar, onUsarNoSite, onAmpliar }:
-  { img: Img | null; onFecha: () => void; onEditar?: (p: string) => void; onSemente?: (n: number) => void; onBaixar: (p: string[]) => Promise<void>;
+/** Redesenho: a força e o prompt usados, para a linha de baixo do Visor ("" se o lote não é um redesenho). */
+function redesenhoDe(msg?: Msg): string {
+  const a = msg?.meta?.opts?.ampliacao as { forca?: number; prompt?: string } | undefined;
+  return a?.forca == null ? "" : `redesenho · força ${a.forca.toFixed(2).replace(".", ",")}${a.prompt ? ` · “${a.prompt}”` : ""}`;
+}
+
+function Visor({ img, detalhe, onFecha, onEditar, onSemente, onBaixar, onUsarNoSite, onAmpliar }:
+  { img: Img | null; detalhe?: string; onFecha: () => void; onEditar?: (p: string) => void; onSemente?: (n: number) => void; onBaixar: (p: string[]) => Promise<void>;
     onUsarNoSite?: () => void; onAmpliar: (i: Img, w?: number, h?: number) => void }) {
   const inset = useSafeAreaInsets();
   const [baixando, setBaixando] = useState(false);
@@ -610,6 +616,7 @@ function Visor({ img, onFecha, onEditar, onSemente, onBaixar, onUsarNoSite, onAm
           <Text style={{ color: c.muted, fontFamily: mono, fontSize: 12, textAlign: "center" }}>
             {img.nome ? `${img.nome}${img.destino ? " · no site" : ""} · ` : ""}{img.model_name} · semente {img.seed}
           </Text>
+          {!!detalhe && <Text style={{ color: c.faint, fontSize: 12, textAlign: "center" }} numberOfLines={3}>{detalhe}</Text>}
           <View style={{ flexDirection: "row", gap: 8, justifyContent: "center", flexWrap: "wrap" }}>
             {onUsarNoSite && <Pressable style={s.btn} onPress={onUsarNoSite}><Text style={s.btnTxt}>Usar no site</Text></Pressable>}
             <Pressable style={s.btn} disabled={baixando} onPress={async () => { setBaixando(true); await onBaixar([img.path]); setBaixando(false); }}>
