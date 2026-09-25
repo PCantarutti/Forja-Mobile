@@ -158,6 +158,19 @@ export default function Imagens({ conv, onCriada, onTurno, onAbreChat }:
     const t = setInterval(carrega, 1500);
     return () => clearInterval(t);
   }, [rodando, carrega]);
+  // Lote criado no PC (ou em outra janela) com nada rodando aqui: o carimbo da lista no /activity muda e a
+  // conversa recarrega, como o Chat faz com o id do turno.
+  const carimbo = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    if (convId == null || rodando) return;
+    const olha = () => api.get<{ lista?: string }>("/activity").then((a) => {
+      if (carimbo.current !== undefined && a.lista && a.lista !== carimbo.current) carrega();
+      carimbo.current = a.lista;
+    }).catch(() => {});
+    olha();
+    const t = setInterval(olha, 3000);
+    return () => clearInterval(t);
+  }, [convId, rodando, carrega]);
 
   /** Pedido que o backend recusa com 409 quando há modelo de texto na VRAM: pergunta e repete com confirm. */
   async function comVram(faz: (confirm: boolean) => Promise<unknown>, oQue: string) {
