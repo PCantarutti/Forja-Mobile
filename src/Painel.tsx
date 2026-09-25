@@ -136,6 +136,8 @@ function Navegador({ conv }: P & { conv: number }) {
   const age = (path: string, body: unknown) => api.post<Estado>(`${path}?${q}`, body).then((e) => e?.tabs && setSt(e)).catch((e) => setErro(e.message));
   if (!st) return <ActivityIndicator style={{ marginTop: 30 }} color={c.muted} />;
   if (aqui) return <AbreAqui url={st.url} onVolta={() => setAqui(false)} />;
+  // aba nova do desktop: a URL-marcador da view nativa (about:blank?forja=...) não é página nenhuma
+  const aberta = st.open && !emBranco(st.url);
   const larg = width - 28;
   const alt = st.width ? (larg * st.height) / st.width : larg;
   return (
@@ -146,7 +148,7 @@ function Navegador({ conv }: P & { conv: number }) {
             <Text style={s.muted}>{a === "back" ? "‹" : a === "forward" ? "›" : "⟳"}</Text>
           </Pressable>
         ))}
-        <TextInput style={[s.input, { flex: 1, paddingVertical: 6, fontSize: 13 }]} value={url || st.url} onChangeText={setUrl}
+        <TextInput style={[s.input, { flex: 1, paddingVertical: 6, fontSize: 13 }]} value={url || (emBranco(st.url) ? "" : st.url)} onChangeText={setUrl}
                    onSubmitEditing={() => { age("/browser/navigate", { url, action: "" }); setUrl(""); }}
                    autoCapitalize="none" autoCorrect={false} placeholder="Endereço" placeholderTextColor={c.faint} />
       </View>
@@ -155,12 +157,17 @@ function Navegador({ conv }: P & { conv: number }) {
           {st.tabs.map((tb) => (
             <Pressable key={tb.index} onPress={() => age("/browser/tabs", { action: "switch", index: tb.index })}
                        style={[botaoPeq, { maxWidth: 180, backgroundColor: tb.active ? c.raised : c.surface }]}>
-              <Text style={{ color: tb.active ? c.fg : c.muted, fontSize: 12.5 }} numberOfLines={1}>{tb.title || tb.url}</Text>
+              <Text style={{ color: tb.active ? c.fg : c.muted, fontSize: 12.5 }} numberOfLines={1}>{emBranco(tb.url) ? "Nova aba" : tb.title || tb.url}</Text>
             </Pressable>
           ))}
         </ScrollView>
       )}
-      {!st.open ? <Text style={s.muted}>A IA não abriu nenhuma página nesta conversa.</Text> : (
+      {!aberta ? (
+        <>
+          <Text style={s.muted}>{st.open ? "Aba nova, sem página." : "A IA não abriu nenhuma página nesta conversa."}</Text>
+          <ServidoresRodando onAbrir={(u) => age("/browser/navigate", { url: u, action: "" })} />
+        </>
+      ) : (
         <>
           {foto && !escondida ? (
             <Pressable onPress={(e) => {
@@ -193,6 +200,46 @@ function Navegador({ conv }: P & { conv: number }) {
   );
 }
 
+const emBranco = (url?: string) => !url || url.startsWith("about:blank");
+
+type Cartao = { chave: string; url: string; onde: string; comando: string };
+
+/** Servidores no ar no PC para abrir na aba da IA com um toque: os que o Forja subiu (serve_start) e os de
+ * desenvolvimento abertos fora dele (npm run dev no Terminal), que o backend detecta pelas portas. */
+function ServidoresRodando({ onAbrir }: { onAbrir: (url: string) => void }) {
+  const [cartoes, setCartoes] = useState<Cartao[]>([]);
+  usePoll(() => {
+    api.get<{ servers: { name: string; alive: boolean; url?: string; command: string; cwd?: string }[];
+              detectados?: { port: number; url: string; processo: string }[] }>("/servers")
+      .then((r) => setCartoes([
+        ...r.servers.filter((x) => x.alive && x.url).map((x) => ({
+          chave: x.name, url: x.url!, comando: comandoCurto(x.command),
+          onde: x.cwd ? x.cwd.split(/[\\/]/).filter(Boolean).pop()! : "",
+        })),
+        ...(r.detectados ?? []).map((d) => ({ chave: `porta-${d.port}`, url: d.url, comando: d.processo, onde: "fora do Forja" })),
+      ]))
+      .catch(() => {});
+  }, 4000, []);
+  if (!cartoes.length) return null;
+  return (
+    <View style={{ gap: 8, marginTop: 6 }}>
+      <Text style={s.faint}>Servidores rodando no PC: toque para abrir aqui.</Text>
+      {cartoes.map((x) => (
+        <View key={x.chave} style={[cartao, { flexDirection: "row", alignItems: "center", gap: 10 }]}>
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <Text style={s.faint} numberOfLines={1}>{x.url.replace(/^https?:\/\//, "")}{x.onde ? ` · ${x.onde}` : ""}</Text>
+            <Text style={{ color: c.fg, fontFamily: mono, fontSize: 12.5 }} numberOfLines={1}>{x.comando}</Text>
+          </View>
+          <Pressable style={botaoPeq} onPress={() => onAbrir(x.url)}><Text style={s.txt}>Abrir</Text></Pressable>
+        </View>
+      ))}
+    </View>
+  );
+}
+
+/** `& "C:\...\python.exe" -m http.server` → `python -m http.server`. */
+const comandoCurto = (cmd: string) => cmd.replace(/^&\s*/, "").replace(/"[^"]*[\\/]([^"\\/]+?)(?:\.exe)?"/gi, "$1");
+
 /** A página da aba da IA na WebView do celular. localhost é o PC: só abre se for um site que o agente subiu
  * (a porta passa pela tailnet via /mobile/expose); endereço público abre direto. */
 function AbreAqui({ url, onVolta }: { url: string; onVolta: () => void }) {
@@ -201,10 +248,13 @@ function AbreAqui({ url, onVolta }: { url: string; onVolta: () => void }) {
   const local = /^https?:\/\/(localhost|127\.0\.0\.1)(:(\d+))?(.*)$/.exec(url);
   useEffect(() => {
     if (!local) return;
-    api.get<{ servers: { name: string; alive: boolean; url: string }[] }>("/servers").then(({ servers }) => {
+    api.get<{ servers: { name: string; alive: boolean; url: string }[]; detectados?: { port: number }[] }>("/servers").then(({ servers, detectados }) => {
       const sv = servers.find((x) => x.alive && x.url.includes(`:${local[3]}`));
+      // aberto fora do Forja (npm run dev no Terminal): o PC publica pela porta, se ela está entre as detectadas
+      const det = (detectados ?? []).find((d) => String(d.port) === local[3]);
       if (sv) setSite({ nome: sv.name, caminho: local[4] || "" });
-      else setErro(`${url} é um endereço do PC, e só dá para abrir aqui os sites que o agente subiu.`);
+      else if (det) setSite({ nome: `porta-${det.port}`, caminho: local[4] || "" });
+      else setErro(`${url} é um endereço do PC que não é de um servidor de desenvolvimento rodando.`);
     }).catch((e) => setErro(e.message));
   }, [url]);
   return (

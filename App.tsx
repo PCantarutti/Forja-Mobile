@@ -441,14 +441,22 @@ function Parear({ onPronto }: { onPronto: () => void }) {
   );
 }
 
-/** Sites que o agente subiu (serve_start). Tocar publica a porta na tailnet e abre dentro do app. */
+/** Sites que o agente subiu (serve_start) e os de desenvolvimento abertos fora do Forja que o PC detecta.
+ * Tocar publica a porta na tailnet e abre dentro do app. */
 function Servidores({ abre }: { abre: (nome: string) => void }) {
   const [lista, setLista] = useState<Servidor[] | null>(null);
   const [erro, setErro] = useState("");
   const [carregando, setCarregando] = useState(false);
   const carrega = () => {
     setCarregando(true);
-    api.get<{ servers: Servidor[] }>("/servers").then((r) => { setLista(r.servers.filter((x) => x.alive && x.url)); setErro(""); })
+    api.get<{ servers: Servidor[]; detectados?: { port: number; url: string; processo: string }[] }>("/servers").then((r) => {
+      setLista([
+        ...r.servers.filter((x) => x.alive && x.url),
+        // npm run dev no Terminal, ou fora do app: o PC publica pela tailnet do mesmo jeito (nome "porta-N")
+        ...(r.detectados ?? []).map((d) => ({ name: `porta-${d.port}`, alive: true, url: d.url, command: `${d.processo} (fora do Forja)` })),
+      ]);
+      setErro("");
+    })
       .catch((e) => setErro(e.message)).finally(() => setCarregando(false));
   };
   useEffect(carrega, []);
