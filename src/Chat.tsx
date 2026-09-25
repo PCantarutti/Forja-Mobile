@@ -250,8 +250,10 @@ export default function Chat({ conv, kind, workspace, onCriada, onTelaCheia, pas
     return nova.id;
   }
   const idNovo = useRef<number | null>(null);
+  const semPasta = (kind === "agent" || kind === "maestro") && convId == null && !idNovo.current && !workspace;
 
   async function anexar() {
+    if (semPasta) return setErro("Escolha uma pasta de trabalho antes de anexar: o anexo vai para dentro dela.");
     const r = await DocumentPicker.getDocumentAsync({ multiple: true, copyToCacheDirectory: true }).catch(() => null);
     if (!r || r.canceled) return;
     setEnviando(true);
@@ -285,6 +287,7 @@ export default function Chat({ conv, kind, workspace, onCriada, onTelaCheia, pas
     try {
       if (runId) return void (await api.post(`/runs/${runId}/queue`, { content }));
       if (!ajustes.model) throw new Error("Escolha um modelo no botão de modelo, embaixo da caixa.");
+      if (semPasta) throw new Error("Escolha uma pasta de trabalho antes de enviar (toque em \"Escolher pasta\").");
       noFim.current = true;
       setMsgs((m) => [...m, { id: -Date.now(), role: "user", content, meta: anexos.length ? { attachments: anexos } : undefined }]);
       const id = idNovo.current ?? (await garanteConv());
@@ -459,10 +462,10 @@ export default function Chat({ conv, kind, workspace, onCriada, onTelaCheia, pas
             <LogoMarca size={56} color={c.muted} />
             <Text style={{ color: c.fg, fontSize: 24, fontWeight: "600" }}>Como posso ajudar?</Text>
             {!!pasta && convId == null && (
-              <Pressable onPress={onPasta} style={{ flexDirection: "row", alignItems: "center", gap: 7, borderColor: c.line, borderWidth: 1,
-                                                    borderRadius: 999, paddingHorizontal: 14, paddingVertical: 8, backgroundColor: c.surface }}>
-                <IconePasta size={15} color={c.muted} />
-                <Text style={{ color: c.fg, fontSize: 14 }} numberOfLines={1}>{pasta}</Text>
+              <Pressable onPress={onPasta} style={{ flexDirection: "row", alignItems: "center", gap: 7, borderColor: semPasta ? "#78350f" : c.line,
+                                                    borderWidth: 1, borderRadius: 999, paddingHorizontal: 14, paddingVertical: 8, backgroundColor: c.surface }}>
+                <IconePasta size={15} color={semPasta ? "#fcd34d" : c.muted} />
+                <Text style={{ color: semPasta ? "#fcd34d" : c.fg, fontSize: 14 }} numberOfLines={1}>{pasta}</Text>
                 <Abaixo size={14} color={c.faint} />
               </Pressable>
             )}

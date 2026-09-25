@@ -269,7 +269,8 @@ export default function Video({ conv, onCriada, onTurno }: { conv: Conv | null; 
   const est = o && st ? estimar(st.tempos_video ?? [], modelo?.chave, o) : null;
   const seg = o ? Math.round(((o.frames - 1) / (o.fps || 16)) * 10) / 10 : 0;
   const semRuntime = st && !st.runtimes?.sd?.installed;
-  const pode = !!prompt.trim() && !!aj?.modelo && !rodando && !st?.image_busy && !semRuntime && refs.length >= precisa;
+  // Com uma geração rodando, a nova entra na fila do PC (um sd-cli por vez, na ordem).
+  const pode = !!prompt.trim() && !!aj?.modelo && !semRuntime && refs.length >= precisa;
 
   return (
     <View style={{ flex: 1, paddingBottom: teclado }}>

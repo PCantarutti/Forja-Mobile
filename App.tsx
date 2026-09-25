@@ -102,15 +102,18 @@ function Raiz() {
   const [erro, setErro] = useState("");
   const [telaCheia, setTelaCheia] = useState(false);
   const [pastaNova, setPastaNova] = useState<string | null>(null); // escolhida no seletor para a conversa nova
+  const [padrao, setPadrao] = useState<string | null>(null); // Configurações › Pastas do PC (Agente/Maestro)
   const [seletor, setSeletor] = useState(false);
   const [direita, setDireita] = useState(false);
   const toque = Notifications.useLastNotificationResponse();
   const inset = useSafeAreaInsets();
   const { width, height } = useWindowDimensions();
 
-  const carregaConvs = () =>
-    api.get<Conv[]>("/conversations").then((l) => { setConvs(l); setErro(""); return l; })
+  const carregaConvs = () => {
+    api.get<{ workspace_padrao?: string | null }>("/config").then((r) => setPadrao(r.workspace_padrao ?? null)).catch(() => {});
+    return api.get<Conv[]>("/conversations").then((l) => { setConvs(l); setErro(""); return l; })
       .catch((e) => { setErro(e.message); return [] as Conv[]; });
+  };
 
   useEffect(() => {
     carregaPar().then((p) => { setPareado(!!p); if (p) carregaConvs(); });
@@ -146,6 +149,7 @@ function Raiz() {
   const abre = (c: Conv | null, p: Pagina = pagina, fecha = true) => {
     setPagina(p);
     setConv(c);
+    if (!c) setPastaNova(null);
     setSite(null);
     setSessao((n) => n + 1);
     if (fecha) setGaveta(false);
@@ -183,8 +187,9 @@ function Raiz() {
 
   const criada = (cv: Conv) => { setConv(cv); carregaConvs(); };
   const turno = () => carregaConvs().then((l) => setConv((cv) => (cv && l.find((x) => x.id === cv.id)) || cv)); // título pode ter mudado
-  // Conversa nova: a pasta escolhida no seletor; sem escolha, a da conversa mais recente da página.
-  const workspace = pastaNova ?? convs.find((x) => (x.kind ?? "agent") === pagina)?.workspace ?? null;
+  // Conversa nova: a pasta escolhida no seletor; sem escolha, a padrão das Configurações do PC. Sem nenhuma,
+  // Agente/Maestro pedem a pasta antes do 1º envio (não herdam mais a da conversa anterior).
+  const workspace = pastaNova ?? padrao;
   const comPasta = pagina === "agent" || pagina === "maestro";
   const pastaAtual = conv ? nomePasta(conv.workspace_label || conv.workspace) : nomePasta(workspace);
   const titulo = pagina === "sites" ? (site ?? "Sites") : conv?.title ?? PAGINAS.find((p) => p.id === pagina)!.rotulo;
@@ -203,7 +208,7 @@ function Raiz() {
             {comPasta && (
               <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
                 <IconePasta size={12} color={c.faint} />
-                <Text style={[s.faint, { fontSize: 12.5 }]} numberOfLines={1}>{pastaAtual || "Forja (padrão)"}</Text>
+                <Text style={[s.faint, { fontSize: 12.5 }]} numberOfLines={1}>{pastaAtual || "Escolher pasta"}</Text>
                 {!conv && <Abaixo size={12} color={c.faint} />}
               </View>
             )}
@@ -230,11 +235,11 @@ function Raiz() {
             <Pesquisa key={sessao} conv={conv} onCriada={criada} onTurno={turno}
                       onAbre={(id) => carregaConvs().then((l) => abre(l.find((x) => x.id === id) ?? { id, title: "Discussão" }, "chat"))} />
           ) : pagina === "maestro" ? (
-            <Maestro key={sessao} conv={conv} workspace={workspace} onTelaCheia={setTelaCheia} pasta={pastaAtual || "Forja (padrão)"}
+            <Maestro key={sessao} conv={conv} workspace={workspace} onTelaCheia={setTelaCheia} pasta={pastaAtual || "Escolher pasta"}
                      onPasta={() => setSeletor(true)} onCriada={criada} onTurno={turno} />
           ) : (
             <Chat key={sessao} conv={conv} kind={pagina} workspace={workspace} onTelaCheia={setTelaCheia}
-                  pasta={comPasta ? pastaAtual || "Forja (padrão)" : undefined} onPasta={() => setSeletor(true)}
+                  pasta={comPasta ? pastaAtual || "Escolher pasta" : undefined} onPasta={() => setSeletor(true)}
                   onCriada={criada} onTurno={turno} onAbreImagens={(c) => { carregaConvs(); abre(c, "imagem"); }} />
           )}
         </Protecao>
