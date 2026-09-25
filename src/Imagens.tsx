@@ -465,12 +465,21 @@ export default function Imagens({ conv, onCriada, onTurno, onAbreChat }:
 
       <Visor img={ver} onFecha={() => setVer(null)} onBaixar={baixa}
              onAmpliar={(i, w, h) => { setVer(null);
-               setAmpliar({ path: i.path, mid: i.mid, w, h, prompt: lotes.find((l) => l.msg.id === i.mid)?.user?.content ?? undefined }); }}
+               setAmpliar({ path: i.path, mid: i.mid, w, h, prompt: promptDaImagem(lotes.find((l) => l.msg.id === i.mid)?.user) }); }}
              onEditar={origem ? undefined : (p) => { setRefs((x) => (x.includes(p) || x.length >= MAX_REFS ? x : [...x, p])); setVer(null); }}
              onSemente={origem ? undefined : (n) => { muda({ seed: n, seed_mode: "fixa" }); setVer(null); }}
              onUsarNoSite={ver && chaveSlot(ver) && !ver.destino ? () => { const v = ver; setVer(null); acao(`/imagens/${convId}/escolher`, { slot: chaveSlot(v), path: v.path }); } : undefined} />
     </View>
   );
+}
+
+/** O prompt que descreve a imagem de um lote (lotes.prompt_da_imagem do PC): o da geração; numa ampliação, o do
+ *  redesenho dela; numa ampliação de arquivo, o pedido é o nome do arquivo e o prompt fica vazio. */
+function promptDaImagem(pedido?: Msg): string {
+  if (!pedido) return "";
+  const amp = pedido.meta?.ampliacao as { prompt?: string } | undefined;
+  if (!amp) return pedido.content ?? "";
+  return amp.prompt || (/\.(png|jpe?g|webp)$/i.test(pedido.content ?? "") ? "" : pedido.content ?? "");
 }
 
 const redondo = { width: 36, height: 36, borderRadius: 18, backgroundColor: c.fg, alignItems: "center" as const, justifyContent: "center" as const };
