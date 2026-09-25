@@ -25,6 +25,7 @@ import EscolhePasta, { nomePasta } from "./src/Pasta";
 import Site, { type Servidor } from "./src/Site";
 import { Dialogos, pergunta } from "./src/Dialogo";
 import { NavegadorDoApp } from "./src/Link";
+import ModeloLocal from "./src/ModeloLocal";
 import { c, mono, s } from "./src/tema";
 
 Notifications.setNotificationHandler({
@@ -216,7 +217,10 @@ function Raiz() {
             )}
           </Pressable>
           {pagina !== "sites" ? (
-            <Pressable onPress={() => abre(null)} hitSlop={6} style={redondo}><Novo size={20} /></Pressable>
+            <>
+              <ModeloLocal estilo={redondo} />
+              <Pressable onPress={() => abre(null)} hitSlop={6} style={redondo}><Novo size={20} /></Pressable>
+            </>
           ) : site ? (
             <Pressable onPress={() => setSite(null)} hitSlop={6} style={redondo}><Voltar size={20} /></Pressable>
           ) : null}
