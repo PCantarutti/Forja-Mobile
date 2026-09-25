@@ -9,6 +9,7 @@ import { api, enviaArquivo, lerAjustes, type Msg, salvaAjustes, urlImagem } from
 import type { Conv } from "./Chat";
 import { pergunta } from "./Dialogo";
 import { Cubo, Enviar, Parar } from "./icones";
+import Liquido from "./Liquido";
 import { GaleriaSite, TelaSlot, versoesPorSlot } from "./Slots";
 import { useTeclado } from "./teclado";
 import { c, mono, s } from "./tema";
@@ -508,9 +509,11 @@ function LoteView({ lote, onVer, onAcao, onReaproveita, onContinua, onBaixar }: 
                          : ["pronta", "mantida"].includes(img.status) && onVer(img))}>
               {src ? <Image source={{ uri: src }} style={{ flex: 1 }} resizeMode="cover" fadeDuration={0} /> : (
                 <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
-                  {img.status === "gerando" || img.status === "pendente" ? <ActivityIndicator color={c.muted} /> : null}
+                  {img.status === "pendente" ? <ActivityIndicator color={c.muted} /> : null}
                 </View>
               )}
+              {/* sem prévia ao vivo (ampliação, modelo sem modo de prévia): o líquido do desktop sobe com o progresso */}
+              {img.status === "gerando" && !img.preview && <Liquido fracao={img.progress ?? 0} largura={lado} />}
               {!!img.nome && img.status === "pronta" && !rodando && (
                 <Text style={{ position: "absolute", left: 6, bottom: 6, color: "#fff", fontSize: 11, fontFamily: mono, backgroundColor: "#000a",
                                borderRadius: 6, paddingHorizontal: 5, paddingVertical: 2 }} numberOfLines={1}>{img.destino ? "● " : ""}{img.nome}</Text>

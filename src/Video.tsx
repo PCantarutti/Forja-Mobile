@@ -8,6 +8,7 @@ import type { Conv } from "./Chat";
 import { pergunta } from "./Dialogo";
 import { Cubo, Enviar, Parar, Voltar } from "./icones";
 import { type Destino, salva } from "./Imagens";
+import Liquido from "./Liquido";
 import { useTeclado } from "./teclado";
 import { c, mono, s } from "./tema";
 import { Campo, Chip, Contador, Folha, Lista, Opcao, Seletor } from "./ui";
@@ -473,10 +474,12 @@ function TomadaView({ t, onFoco, onAcao, onReaproveita, onContinua }: {
                         {pronto(img) && index === idx ? <VideoWeb path={img.path} quadro /> :
                          img.status === "gerando" && img.preview ? <Image source={{ uri: urlImagem(img.preview, String(img.progress ?? 0)) }} style={{ flex: 1 }} resizeMode="cover" fadeDuration={0} /> : (
                           <View style={{ flex: 1, alignItems: "center", justifyContent: "center", gap: 6, backgroundColor: "#111" }}>
-                            {["gerando", "pendente"].includes(img.status) && <ActivityIndicator color={c.muted} />}
+                            {img.status === "pendente" && <ActivityIndicator color={c.muted} />}
                             {img.status === "gerando" && !img.progress && <Text style={[s.faint, { fontSize: 12 }]}>carregando o modelo…</Text>}
                           </View>
                         )}
+                        {/* sem prévia ao vivo: o líquido do desktop sobe com o progresso */}
+                        {img.status === "gerando" && !img.preview && <Liquido fracao={img.progress ?? 0} largura={lado} />}
                         {pronto(img) && (
                           <View style={{ position: "absolute", left: 10, top: 10, width: 34, height: 34, borderRadius: 17, backgroundColor: "#000a",
                                          alignItems: "center", justifyContent: "center" }}>
