@@ -23,13 +23,61 @@ const COR: Record<string, string> = { bugfix: c.red, feature: c.sky, improvement
 const NOME: Record<string, string> = { bugfix: "bug", feature: "feature", improvement: "melhoria", visual: "visual",
   todo: "todo", seguranca: "segurança" };
 
-export default function Board({ onAbreConversa }: { onAbreConversa: (id: number, kind: string) => void }) {
+/** Card que a IA criou (board_card) no fim da resposta dela, como no desktop (CardNoChat). Tocar abre o board nele. */
+export type CardMini = { id: number; titulo: string; tipo: string; area: string; severidade: number; status: string;
+  projeto: string; evidencia?: Evidencia | null };
+
+const NOME_STATUS: Record<string, string> = Object.fromEntries(COLUNAS.map((k) => [k.id, k.nome]));
+
+export function CardNoChat({ card, onAbre }: { card: CardMini; onAbre?: (c: CardMini) => void }) {
+  const [k, setK] = useState(card);
+  const [erro, setErro] = useState("");
+  // O status muda depois (Iniciar, Revisão): o do meta é o do momento em que a IA criou.
+  useEffect(() => { api.get<CardMini & { evidencias?: Evidencia[] }>(`/board/issues/${card.id}`)
+    .then((x) => setK({ ...card, ...x, evidencia: card.evidencia ?? x.evidencias?.find((e) => e.arquivo) })).catch(() => {}); }, [card.id]);
+  const iniciar = async () => {
+    setErro("");
+    try {
+      if (k.status === "novo") await api.patch(`/board/issues/${k.id}`, { status: "backlog" });
+      setK({ ...k, ...(await api.post<CardMini>(`/board/issues/${k.id}/iniciar`, {})) });
+    } catch (e: any) { setErro(e.message); }
+  };
+  const ev = k.evidencia;
+  return (
+    <View style={{ gap: 4 }}>
+      <Pressable onPress={() => onAbre?.(k)} style={{ backgroundColor: c.surface, borderRadius: 12, padding: 10, gap: 6,
+                                                        borderWidth: 1, borderColor: c.line }}>
+        <View style={{ flexDirection: "row", gap: 8, alignItems: "center" }}>
+          <Text style={{ color: COR[k.tipo] ?? c.muted, fontSize: 12 }}>{NOME[k.tipo] ?? k.tipo}</Text>
+          <Text style={s.faint}>{k.area}</Text>
+          <View style={{ flex: 1 }} />
+          <Text style={s.faint}>{"●".repeat(4 - k.severidade)} #{k.id} · {NOME_STATUS[k.status] ?? k.status}</Text>
+        </View>
+        <Text style={[s.txt, { fontSize: 14, lineHeight: 20 }]} numberOfLines={2}>{k.titulo}</Text>
+        {!!ev?.arquivo && (
+          <Text style={{ fontFamily: mono, fontSize: 12, color: c.muted }} numberOfLines={1}>
+            {ev.arquivo}{ev.linha ? `:${ev.linha}` : ""}
+          </Text>
+        )}
+        {["novo", "backlog"].includes(k.status) && (
+          <Pressable style={[s.btn, { paddingVertical: 6, alignSelf: "flex-start" }]} onPress={iniciar}>
+            <Text style={[s.btnTxt, { fontSize: 13 }]}>Iniciar</Text>
+          </Pressable>
+        )}
+      </Pressable>
+      {!!erro && <Text style={[s.muted, { color: c.red }]}>{erro}</Text>}
+    </View>
+  );
+}
+
+export default function Board({ onAbreConversa, foco }: { onAbreConversa: (id: number, kind: string) => void;
+  foco?: { id: number; projeto: string } | null }) {
   const [projetos, setProjetos] = useState<{ projeto: string; nome: string }[]>([]);
-  const [projeto, setProjeto] = useState<string | null>(null);
+  const [projeto, setProjeto] = useState<string | null>(foco?.projeto ?? null);
   const [issues, setIssues] = useState<Issue[]>([]);
   const [rodando, setRodando] = useState(false);
   const [erro, setErro] = useState("");
-  const [aberto, setAberto] = useState<number | null>(null);
+  const [aberto, setAberto] = useState<number | null>(foco?.id ?? null);
   const [escolhe, setEscolhe] = useState(false);
   const [carimbo, setCarimbo] = useState("");
 

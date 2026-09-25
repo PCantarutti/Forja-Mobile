@@ -101,6 +101,7 @@ export default function App() {
 function Raiz() {
   const [pareado, setPareado] = useState<boolean | null>(null);
   const [pagina, setPagina] = useState<Pagina>("agent");
+  const [focoCard, setFocoCard] = useState<{ id: number; projeto: string } | null>(null); // card do chat -> Board
   const [conv, setConv] = useState<Conv | null>(null); // null = conversa nova ("Como posso ajudar?")
   const [sessao, setSessao] = useState(0); // troca de conversa remonta o Chat
   const [site, setSite] = useState<string | null>(null);
@@ -236,7 +237,7 @@ function Raiz() {
           {pagina === "sites" ? (
             site ? <Site nome={site} /> : <Servidores abre={setSite} />
           ) : pagina === "board" ? (
-            <Board onAbreConversa={(id) => carregaConvs().then((l) => {
+            <Board foco={focoCard} onAbreConversa={(id) => carregaConvs().then((l) => {
               const cv = l.find((x) => x.id === id) ?? { id, title: "Conversa" };
               abre(cv, kindDe(cv.kind));
             })} />
@@ -255,7 +256,8 @@ function Raiz() {
           ) : (
             <Chat key={sessao} conv={conv} kind={pagina} workspace={workspace} onTelaCheia={setTelaCheia}
                   pasta={comPasta ? pastaAtual || "Escolher pasta" : undefined} onPasta={() => setSeletor(true)}
-                  onCriada={criada} onTurno={turno} onAbreImagens={(c) => { carregaConvs(); abre(c, "imagem"); }} />
+                  onCriada={criada} onTurno={turno} onAbreImagens={(c) => { carregaConvs(); abre(c, "imagem"); }}
+                  onAbreCard={(k) => { setFocoCard({ id: k.id, projeto: k.projeto }); setPagina("board"); }} />
           )}
         </Protecao>
       </View>
@@ -265,7 +267,7 @@ function Raiz() {
                     onEscolhe={(p) => { setPastaNova(p); setSeletor(false); }} />
       <Gaveta aberta={gaveta} fecha={() => setGaveta(false)} pagina={pagina} convs={convs} atual={conv?.id} erro={erro}
               // Trocar de página só troca a lista: a gaveta fica aberta para escolher a conversa (Sites não tem conversa).
-              onPagina={(p) => (SEM_CONVERSA(p) ? (setPagina(p), setSite(null), setGaveta(false)) : abre(null, p, false))}
+              onPagina={(p) => (SEM_CONVERSA(p) ? (setPagina(p), setSite(null), setFocoCard(null), setGaveta(false)) : abre(null, p, false))}
               onConv={(c) => abre(c)} onNova={() => abre(null)}
               onDesparear={() => salvaPar(null).then(() => { setGaveta(false); setPareado(false); })} />
     </View>
