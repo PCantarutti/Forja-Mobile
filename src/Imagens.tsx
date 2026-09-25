@@ -30,7 +30,7 @@ type Ajustes = { models: string[]; count: number; seed: number; seed_mode: strin
 // Ampliar: uma imagem de um lote (mid = mensagem dele) ou uma do celular (já enviada ao PC, sem mid).
 type Ampliar = { path: string; mid?: number; w?: number; h?: number };
 // GET /local/video/ampliadores: os modelos no PC. tipo esrgan (rápido) ou seedvr2 (difusão, pelo ComfyUI do PC, minutos)
-type Ampliadores = { no_disco: { path: string; name: string; tipo?: "esrgan" | "seedvr2" }[]; comfy?: { instalado: string } };
+type Ampliadores = { no_disco: { path: string; name: string; tipo?: "esrgan" | "seedvr2" | "spandrel" }[]; comfy?: { instalado: string } };
 
 // Listas do desktop (ImagensView / LocalPanel).
 const AMOSTRADORES = ["euler_a", "euler", "heun", "dpm2", "dpm++2s_a", "dpm++2m", "dpm++2mv2", "ipndm", "lcm", "ddim_trailing", "tcd",
@@ -616,9 +616,9 @@ function FolhaAmpliar({ alvo, onFecha, onAmpliar, onErro }:
   useEffect(() => {
     if (alvo) api.get<Ampliadores>("/local/video/ampliadores").then(setCat).catch((e) => onErro(e.message));
   }, [alvo]);
-  // SeedVR2 só com o ComfyUI instalado no PC; e nunca é o padrão (leva minutos)
-  const metodos = (cat?.no_disco ?? []).filter((m) => m.tipo !== "seedvr2" || !!cat?.comfy?.instalado);
-  const escolhido = modelo ?? metodos.find((m) => m.tipo !== "seedvr2")?.path ?? "";
+  // SeedVR2 e DAT/HAT (spandrel) só com o ComfyUI instalado no PC; o padrão é sempre um ESRGAN (rápido, leve)
+  const metodos = (cat?.no_disco ?? []).filter((m) => (m.tipo ?? "esrgan") === "esrgan" || !!cat?.comfy?.instalado);
+  const escolhido = modelo ?? metodos.find((m) => (m.tipo ?? "esrgan") === "esrgan")?.path ?? "";
   const tam = (f: number) => (alvo?.w && alvo.h ? ` · ${alvo.w * f}×${alvo.h * f}` : "");
   return (
     <Folha aberta={!!alvo} titulo="Ampliar imagem" onFecha={onFecha}>
@@ -628,7 +628,8 @@ function FolhaAmpliar({ alvo, onFecha, onAmpliar, onErro }:
                                       : "Sem modelo de IA no PC: baixe um na tela Imagens do desktop (Ampliar › Baixar o que falta)."}>
             <Lista<string> valor={escolhido} onEscolhe={setModelo} opcoes={[
               ...metodos.map((m) => ({ id: m.path, rotulo: m.name,
-                dica: m.tipo === "seedvr2" ? "IA pesada (SeedVR2): mais detalhe, leva minutos" : "IA (ESRGAN)" })),
+                dica: m.tipo === "seedvr2" ? "IA pesada (SeedVR2): mais detalhe, leva minutos"
+                  : m.tipo === "spandrel" ? "IA (DAT/HAT, pelo ComfyUI): mais fiel, segundos" : "IA (ESRGAN)" })),
               { id: "", rotulo: "Lanczos", dica: "Rápido, sem IA" },
             ]} />
           </Campo>
