@@ -20,6 +20,7 @@ import LeitorQR from "./src/LeitorQR";
 import Maestro from "./src/Maestro";
 import { Painel, PAINEIS, type PainelId } from "./src/Painel";
 import Pesquisa from "./src/Pesquisa";
+import Board from "./src/Board";
 import { LogoMarca, LogoTexto } from "./src/Logo";
 import EscolhePasta, { nomePasta } from "./src/Pasta";
 import Site, { type Servidor } from "./src/Site";
@@ -63,7 +64,7 @@ class Protecao extends Component<{ children: ReactNode; onVoltar: () => void }, 
   }
 }
 
-type Pagina = "chat" | "agent" | "maestro" | "imagem" | "video" | "comparar" | "pesquisa" | "sites";
+type Pagina = "chat" | "agent" | "maestro" | "imagem" | "video" | "comparar" | "pesquisa" | "board" | "sites";
 // As seções do Forja Desktop (Controls.tsx, SectionTabs), na mesma ordem, + os sites que o agente subiu.
 const PAGINAS: { id: Pagina; rotulo: string; Icone: typeof Balao }[] = [
   { id: "chat", rotulo: "Chat", Icone: Balao },
@@ -73,12 +74,15 @@ const PAGINAS: { id: Pagina; rotulo: string; Icone: typeof Balao }[] = [
   { id: "video", rotulo: "Vídeo", Icone: Filme },
   { id: "comparar", rotulo: "Comparar", Icone: Balanca },
   { id: "pesquisa", rotulo: "Pesquisa", Icone: Busca },
+  { id: "board", rotulo: "Board", Icone: Prancheta },
   { id: "sites", rotulo: "Sites", Icone: Globo },
 ];
 const ICONE_PAINEL: Record<PainelId, typeof Balao> = {
   info: Info, navegador: Globo, terminal: Term, alteracoes: Ramo, instancias: Pulso, local: Chip, planos: Prancheta,
 };
-const kindDe = (k?: string): Pagina => (PAGINAS.some((p) => p.id === k) && k !== "sites" ? (k as Pagina) : "agent");
+// Board e Sites não são tipo de conversa: não têm lista na gaveta.
+const SEM_CONVERSA = (p: Pagina) => p === "sites" || p === "board";
+const kindDe = (k?: string): Pagina => (PAGINAS.some((p) => p.id === k) && !SEM_CONVERSA(k as Pagina) ? (k as Pagina) : "agent");
 const pasta = (label?: string) => label?.split(/[\\/]/).filter(Boolean).pop() || "Forja (padrão)";
 
 export default function App() {
@@ -173,7 +177,7 @@ function Raiz() {
       if (gaveta) return setGaveta(false), true;
       if (direita) return setDireita(false), true;
       if (site) return setSite(null), true;
-      if (conv || pagina === "sites") return setGaveta(true), true; // como no ChatGPT: voltar mostra as conversas
+      if (conv || SEM_CONVERSA(pagina)) return setGaveta(true), true; // como no ChatGPT: voltar mostra as conversas
       return false;
     });
     return () => sub.remove();
@@ -231,6 +235,11 @@ function Raiz() {
         <Protecao onVoltar={() => abre(null)}>
           {pagina === "sites" ? (
             site ? <Site nome={site} /> : <Servidores abre={setSite} />
+          ) : pagina === "board" ? (
+            <Board onAbreConversa={(id) => carregaConvs().then((l) => {
+              const cv = l.find((x) => x.id === id) ?? { id, title: "Conversa" };
+              abre(cv, kindDe(cv.kind));
+            })} />
           ) : pagina === "imagem" ? (
             <Imagens key={sessao} conv={conv} onCriada={criada} onTurno={turno} onAbreChat={(c, k) => abre(c, k as Pagina)} />
           ) : pagina === "video" ? (
@@ -256,7 +265,7 @@ function Raiz() {
                     onEscolhe={(p) => { setPastaNova(p); setSeletor(false); }} />
       <Gaveta aberta={gaveta} fecha={() => setGaveta(false)} pagina={pagina} convs={convs} atual={conv?.id} erro={erro}
               // Trocar de página só troca a lista: a gaveta fica aberta para escolher a conversa (Sites não tem conversa).
-              onPagina={(p) => (p === "sites" ? (setPagina("sites"), setSite(null), setGaveta(false)) : abre(null, p, false))}
+              onPagina={(p) => (SEM_CONVERSA(p) ? (setPagina(p), setSite(null), setGaveta(false)) : abre(null, p, false))}
               onConv={(c) => abre(c)} onNova={() => abre(null)}
               onDesparear={() => salvaPar(null).then(() => { setGaveta(false); setPareado(false); })} />
     </View>
