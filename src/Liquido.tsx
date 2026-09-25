@@ -29,8 +29,10 @@ export default function Liquido({ fracao, largura }: { fracao: number; largura: 
 
   return (
     // Cor sólida por dentro e a transparência no grupo, como no desktop: crista e corpo se sobrepõem 1 px e, cada
-    // um semitransparente, a sobreposição aparecia como uma linha mais escura.
+    // um semitransparente, a sobreposição aparecia como uma linha mais escura. No Android a opacidade de uma View
+    // vale para cada filho em separado; needsOffscreenAlphaCompositing desenha o grupo numa camada e aplica uma vez.
     <Animated.View pointerEvents="none" accessibilityRole="progressbar" accessibilityValue={{ min: 0, max: 100, now: pct }}
+      needsOffscreenAlphaCompositing renderToHardwareTextureAndroid
       style={{ position: "absolute", left: 0, right: 0, bottom: 0, opacity: 0.25,
                height: nivel.interpolate({ inputRange: [0, 100], outputRange: ["0%", "100%"] }) }}>
       <View style={{ flex: 1, backgroundColor: c.sky }} />
