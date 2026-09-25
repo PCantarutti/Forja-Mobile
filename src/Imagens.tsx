@@ -10,6 +10,7 @@ import type { Conv } from "./Chat";
 import { pergunta } from "./Dialogo";
 import { Cubo, Enviar, Parar } from "./icones";
 import Liquido from "./Liquido";
+import { restante, velocidade } from "./progresso";
 import { GaleriaSite, TelaSlot, versoesPorSlot } from "./Slots";
 import { useTeclado } from "./teclado";
 import { c, mono, s } from "./tema";
@@ -522,7 +523,8 @@ function LoteView({ lote, onVer, onAcao, onReaproveita, onContinua, onBaixar }: 
                 <View style={{ position: "absolute", left: 6, bottom: 6, right: 6, backgroundColor: "#000b", borderRadius: 8, padding: 6 }}>
                   <Text style={{ color: img.status === "erro" ? c.red : c.fg, fontSize: 12 }} numberOfLines={2}>
                     {img.fase ?? ROTULO[img.status]}{img.status === "gerando" && img.progress != null ? ` ${Math.round(img.progress * 100)}%` : ""}
-                    {img.status === "gerando" && img.restante ? ` · ~${Math.ceil(img.restante)}s` : ""}{img.error ? ` · ${img.error}` : ""}
+                    {img.status === "gerando" && img.s_passo ? ` · ${velocidade(img.s_passo)}` : ""}
+                    {img.status === "gerando" && img.restante ? ` · ${restante(img.restante)}` : ""}{img.error ? ` · ${img.error}` : ""}
                   </Text>
                   {img.status === "gerando" && (
                     <View style={{ height: 3, backgroundColor: c.line, borderRadius: 2, marginTop: 4 }}>

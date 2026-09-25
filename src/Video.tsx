@@ -9,6 +9,7 @@ import { pergunta } from "./Dialogo";
 import { Cubo, Enviar, Parar, Voltar } from "./icones";
 import { type Destino, salva } from "./Imagens";
 import Liquido from "./Liquido";
+import { restante, velocidade } from "./progresso";
 import { useTeclado } from "./teclado";
 import { c, mono, s } from "./tema";
 import { Campo, Chip, Contador, Folha, Lista, Opcao, Seletor } from "./ui";
@@ -24,7 +25,7 @@ type Opts = Record<string, any> & { steps: number; cfg: number; width: number; h
                                     loras?: { path: string; peso: number }[] };
 type LocalVid = { video: Opts; video_models: ModeloVid[]; loras: Lora[]; tempos_video: Tempo[]; image_busy?: boolean; runtimes: any };
 type Img = { path: string; seed: number; model_name?: string; status: string; progress?: number; preview?: string; com_previa?: boolean;
-             restante?: number; s_passo?: number; error?: string };
+             restante?: number; s_passo?: number; error?: string; unidade?: string }; // unidade "quadro": ampliação
 type Tomada = { user?: Msg; msg: Msg; imgs: Img[] };
 type Ajustes = { modelo: string; modo: string; count: number; seed: number; seed_mode: string; o: Opts | null };
 
@@ -494,8 +495,8 @@ function TomadaView({ t, onFoco, onAcao, onReaproveita, onContinua }: {
                           <View style={{ position: "absolute", left: 8, bottom: 8, right: 8, backgroundColor: "#000b", borderRadius: 10, padding: 8 }}>
                             <Text style={{ color: img.status === "erro" ? c.red : c.fg, fontSize: 12.5 }} numberOfLines={3}>
                               {ROTULO[img.status]}{img.status === "gerando" && img.progress != null ? ` ${Math.round(img.progress * 100)}%` : ""}
-                              {img.status === "gerando" && img.s_passo ? ` · ${img.s_passo.toFixed(1)} s/passo` : ""}
-                              {img.status === "gerando" && img.restante ? ` · ~${tempo(img.restante)}` : ""}{img.error ? ` · ${img.error.split("\n")[0]}` : ""}
+                              {img.status === "gerando" && img.s_passo ? ` · ${velocidade(img.s_passo, img.unidade === "quadro" ? "quadro" : "passo")}` : ""}
+                              {img.status === "gerando" && img.restante ? ` · ${restante(img.restante)}` : ""}{img.error ? ` · ${img.error.split("\n")[0]}` : ""}
                             </Text>
                             {img.status === "gerando" && (
                               <View style={{ height: 3, backgroundColor: c.line, borderRadius: 2, marginTop: 5 }}>
