@@ -461,7 +461,7 @@ export default function Imagens({ conv, onCriada, onTurno, onAbreChat }:
                 onParar={(ids) => Promise.all(ids.map((id) => api.post(`/imagens/${id}/cancelar`).catch(() => {}))).then(carrega)}
                 onZoom={(img) => setVer(img as Img)} onFecha={() => setSlotAberto(null)} />
 
-      <FolhaAmpliar alvo={ampliar} onFecha={() => setAmpliar(null)} onAmpliar={amplia} onErro={setErro} />
+      <FolhaAmpliar key={ampliar?.path ?? ""} alvo={ampliar} onFecha={() => setAmpliar(null)} onAmpliar={amplia} onErro={setErro} />
 
       <Visor img={ver} onFecha={() => setVer(null)} onBaixar={baixa}
              onAmpliar={(i, w, h) => { setVer(null);
@@ -623,12 +623,11 @@ function FolhaAmpliar({ alvo, onFecha, onAmpliar, onErro }:
   const [cat, setCat] = useState<Ampliadores | null>(null);
   const [modelo, setModelo] = useState<string | null>(null);
   const [fator, setFator] = useState<"2" | "4">("2");
-  const [prompt, setPrompt] = useState("");
+  const [prompt, setPrompt] = useState(alvo?.prompt ?? ""); // a folha nasce de novo a cada imagem (key no pai)
   const [forca, setForca] = useState<"0.3" | "0.4" | "0.5" | "0.6">("0.4");
   useEffect(() => {
     if (!alvo) return;
     api.get<Ampliadores>("/local/video/ampliadores").then(setCat).catch((e) => onErro(e.message));
-    setPrompt(alvo.prompt ?? "");
   }, [alvo]);
   // SeedVR2 e DAT/HAT (spandrel) só com o ComfyUI instalado no PC; o padrão é sempre um ESRGAN (rápido, leve)
   const metodos = (cat?.no_disco ?? []).filter((m) => (m.tipo ?? "esrgan") === "esrgan" || !!cat?.comfy?.instalado);
