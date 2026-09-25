@@ -26,7 +26,7 @@ const tipoDe = (a: { name: string; mime?: string }) => {
   const alvo = `${a.name.toLowerCase()} ${a.mime ?? ""}`;
   return TIPOS.find((t) => t.casa.test(alvo)) ?? { rotulo: "Arquivo", marca: (a.name.split(".").pop() ?? "").slice(0, 4).toUpperCase() || "?", cor: "#525252" };
 };
-const ehImagem = (a: { name: string; mime?: string; kind?: string }) =>
+export const ehImagem = (a: { name: string; mime?: string; kind?: string }) =>
   a.kind === "image" || /^image\//.test(a.mime ?? "") || /\.(png|jpe?g|gif|webp|bmp|heic)$/i.test(a.name);
 
 const tamanho = (n: number) => (!n ? "" : n < 1024 ? `${n} B` : n < 1048576 ? `${(n / 1024).toFixed(0)} KB` : `${(n / 1048576).toFixed(1)} MB`);

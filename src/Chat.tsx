@@ -1,10 +1,10 @@
 import { createContext, memo, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, AppState, FlatList, Keyboard, Modal, useWindowDimensions, Pressable, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, AppState, FlatList, Image, Keyboard, Modal, useWindowDimensions, Pressable, Text, TextInput, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as DocumentPicker from "expo-document-picker";
-import { api, type Aprovacao, enviaArquivo, lerAjustes, type Live, type Msg, salvaAjustes, streamRun } from "./api";
+import { api, type Aprovacao, base, comToken, enviaArquivo, lerAjustes, type Live, type Msg, salvaAjustes, streamRun } from "./api";
 import { pergunta as dialogo } from "./Dialogo";
-import { type Anexo, CartaoAnexo, ConvDoAnexo } from "./Anexo";
+import { type Anexo, CartaoAnexo, ConvDoAnexo, ehImagem } from "./Anexo";
 import { limpaConversa } from "./revoga";
 import Entrada, { type Ajustes, type Contexto } from "./Entrada";
 import { Abaixo, Cerebro, Cubo, Enviar, Escudo, Globo, Imagem, Lapis, Parar, Pasta as IconePasta, Relogio, Seta } from "./icones";
@@ -714,6 +714,8 @@ function Grupo({ pecas, resultados, pendentes }: { pecas: Peca[]; resultados: Ma
           </View>
         );
       })}
+      {/* Print e imagem que a ferramenta devolveu são resposta, não detalhe: ficam à vista (desktop: `shots`). */}
+      <Prints lista={calls.flatMap((k) => (resultados.get(k.id)?.meta?.attachments ?? []) as Anexo[]).filter(ehImagem)} />
       {aberto && (
         <View style={{ marginTop: 8, marginLeft: 4, paddingLeft: 12, borderLeftWidth: 1, borderLeftColor: c.line, gap: 10 }}>
           {pecas.map((p) => {
@@ -745,6 +747,29 @@ function Grupo({ pecas, resultados, pendentes }: { pecas: Peca[]; resultados: Ma
           })}
         </View>
       )}
+    </View>
+  );
+}
+
+/** Imagens devolvidas por ferramenta (browser_screenshot...): largura toda, e o toque abre em tela cheia. */
+function Prints({ lista }: { lista: Anexo[] }) {
+  const conv = useContext(ConvDoAnexo);
+  const [grande, setGrande] = useState<string | null>(null);
+  if (!lista.length || conv == null) return null;
+  const url = (a: Anexo) => comToken(`${base()}/api/files?path=${encodeURIComponent(a.path)}&conv=${conv}`);
+  return (
+    <View style={{ gap: 8 }}>
+      {lista.map((a) => (
+        <Pressable key={a.path} onPress={() => setGrande(url(a))}>
+          <Image source={{ uri: url(a) }} resizeMode="contain"
+                 style={{ width: "100%", aspectRatio: 16 / 9, borderRadius: 12, borderWidth: 1, borderColor: c.line, backgroundColor: "#000" }} />
+        </Pressable>
+      ))}
+      <Modal visible={!!grande} transparent animationType="fade" onRequestClose={() => setGrande(null)} statusBarTranslucent>
+        <Pressable onPress={() => setGrande(null)} style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.94)", justifyContent: "center" }}>
+          {!!grande && <Image source={{ uri: grande }} resizeMode="contain" style={{ width: "100%", height: "100%" }} />}
+        </Pressable>
+      </Modal>
     </View>
   );
 }
