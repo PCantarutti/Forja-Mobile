@@ -38,7 +38,15 @@ function Memoria({ rotulo, usado, total }: { rotulo: string; usado: number; tota
 export default function ModeloLocal({ estilo }: { estilo: object }) {
   const [uso, setUso] = useState<Uso | null>(null);
   const [aberto, setAberto] = useState(false);
+  const [descarregando, setDescarregando] = useState(false);
   const inset = useSafeAreaInsets();
+
+  async function descarregar() {
+    setDescarregando(true);
+    await api.post("/local/unload", {}).catch(() => {});
+    setUso(await api.get<Uso>("/local/uso").catch(() => uso));
+    setDescarregando(false);
+  }
 
   useEffect(() => {
     const carrega = () => api.get<Uso>("/local/uso").then(setUso).catch(() => {});
@@ -105,6 +113,14 @@ export default function ModeloLocal({ estilo }: { estilo: object }) {
                 <Memoria rotulo="RAM" usado={uso.ram.usado} total={uso.ram.total} />
                 {uso.gerando_imagem && <Text style={{ color: c.sky, fontSize: 12.5 }}>Gerando imagem ou vídeo agora: a GPU está com o sd.cpp.</Text>}
               </View>
+            )}
+
+            {!!m && (
+              <Pressable onPress={descarregar} disabled={descarregando}
+                         style={{ alignItems: "center", paddingVertical: 13, borderRadius: 14, borderWidth: 1, borderColor: c.line,
+                                  opacity: descarregando ? 0.5 : 1 }}>
+                <Text style={{ color: c.fg, fontSize: 15 }}>{descarregando ? "Descarregando…" : "Descarregar modelo"}</Text>
+              </Pressable>
             )}
           </Pressable>
         </Pressable>
