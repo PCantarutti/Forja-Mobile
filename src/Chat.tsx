@@ -496,7 +496,14 @@ export default function Chat({ conv, kind, workspace, onCriada, onTelaCheia, pas
           <Abaixo size={18} />
         </Pressable>
       )}
-      <Entrada kind={kind} conv={convId} teclado={teclado > 0} rodando={!!runId} perm={perm} onPerm={trocaPerm} onEnvia={envia}
+      <Entrada kind={kind} conv={convId} teclado={teclado > 0} rodando={!!runId} perm={perm} onPerm={trocaPerm}
+               onEnvia={(t) => {
+                 // Recusa antes de limpar o campo: sem modelo ou sem pasta, o texto digitado não se perde.
+                 const motivo = runId ? "" : !ajustes.model ? "Escolha um modelo no botão de modelo, embaixo da caixa."
+                   : semPasta ? "Escolha uma pasta de trabalho antes de enviar (toque em \"Escolher pasta\")." : "";
+                 if (motivo) { setErro(motivo); return false; }
+                 envia(t);
+               }}
                ajustes={ajustes} onAjustes={mudaAjustes} ctx={ctx} podeCompactar={!runId && convId != null} onCompactar={compactar} anexos={anexos} enviando={enviando} onAnexar={anexar}
                onTiraAnexo={(pth) => setAnexos((x) => x.filter((a) => a.path !== pth))}
              onPara={() => runId && api.post(`/runs/${runId}/stop`).catch((e) => setErro(e.message))} />

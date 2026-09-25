@@ -119,7 +119,7 @@ export default function Entrada(p: {
   kind: string; teclado: boolean; rodando: boolean; perm: string; onPerm: (v: string) => void;
   ajustes: Ajustes; onAjustes: (a: Ajustes, gguf?: string) => void; ctx: Contexto | null; podeCompactar: boolean; onCompactar: () => void;
   anexos: Anexo[]; enviando: boolean; onAnexar: () => void; onTiraAnexo: (path: string) => void;
-  onEnvia: (t: string) => void; onPara: () => void; conv?: number | null;
+  onEnvia: (t: string) => unknown; /* false = recusou: o texto fica no campo */ onPara: () => void; conv?: number | null;
 }) {
   const [t, setT] = useState("");
   // /skill:nome em qualquer ponto do texto (desktop App.tsx inlineQuery): o backend lê do conteúdo, aqui só completa.
@@ -138,7 +138,7 @@ export default function Entrada(p: {
   const esforcos = p.kind === "maestro" ? ESFORCOS.filter((e) => e.id !== "extremo") : ESFORCOS; // o desktop tira o extremo no Maestro
   const esforco = ESFORCOS.find((e) => e.id === p.ajustes.effort) ?? ESFORCOS[1];
   const pode = !!t.trim() || (!p.rodando && p.anexos.length > 0);
-  const envia = () => { if (!pode) return; const v = t.trim(); setT(""); p.onEnvia(v); };
+  const envia = () => { if (!pode) return; const v = t.trim(); if (p.onEnvia(v) !== false) setT(""); };
   return (
     <View style={{ paddingHorizontal: 12, paddingTop: 6, paddingBottom: p.teclado ? 8 : Math.max(inset.bottom, 10) }}>
       <View style={{ backgroundColor: c.surface, borderColor: c.line, borderWidth: 1, borderRadius: 24, padding: 8, gap: 6 }}>
