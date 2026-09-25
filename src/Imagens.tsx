@@ -27,6 +27,9 @@ type ModeloImg = { path: string; name: string; params?: Record<string, any> };
 type LocalImg = { image: Record<string, any>; image_models: ModeloImg[]; runtimes: any };
 type Opts = { steps: number; cfg: number; width: number; height: number; sampler: string; negative: string };
 type Ajustes = { models: string[]; count: number; seed: number; seed_mode: string; opts: Opts };
+// Ampliar: uma imagem de um lote (mid = mensagem dele) ou uma do celular (já enviada ao PC, sem mid).
+type Ampliar = { path: string; mid?: number; w?: number; h?: number };
+type Ampliadores = { no_disco: { path: string; name: string }[] }; // GET /local/video/ampliadores (os ESRGAN no PC)
 
 // Listas do desktop (ImagensView / LocalPanel).
 const AMOSTRADORES = ["euler_a", "euler", "heun", "dpm2", "dpm++2s_a", "dpm++2m", "dpm++2mv2", "ipndm", "lcm", "ddim_trailing", "tcd",
@@ -96,6 +99,7 @@ export default function Imagens({ conv, onCriada, onTurno, onAbreChat }:
   const [origem, setOrigem] = useState<Origem | null>(null);
   const [estilo, setEstilo] = useState<string | null>(null); // folha "Outro estilo" aberta com o texto
   const [slotAberto, setSlotAberto] = useState<string | null>(null); // tela de versões de um slot do site
+  const [ampliar, setAmpliar] = useState<Ampliar | null>(null);
   const lista = useRef<FlatList>(null);
   const inset = useSafeAreaInsets();
   const teclado = useTeclado();
@@ -164,6 +168,44 @@ export default function Imagens({ conv, onCriada, onTurno, onAbreChat }:
     }
   }
 
+  async function garanteConv(): Promise<number | null> {
+    if (convRef.current != null) return convRef.current;
+    try {
+      const nova = await api.post<Conv>("/conversations", { kind: "imagem" });
+      onCriada(nova);
+      convRef.current = nova.id;
+      setConvId(nova.id);
+      return nova.id;
+    } catch (e: any) { setErro(e.message); return null; }
+  }
+
+  /** Uma imagem do celular: vai para o PC (pasta de referências) e abre a folha de ampliar. */
+  async function ampliaDoCelular() {
+    const r = await DocumentPicker.getDocumentAsync({ type: ["image/png", "image/jpeg", "image/webp"], copyToCacheDirectory: true }).catch(() => null);
+    if (!r || r.canceled) return;
+    const a = r.assets[0];
+    try {
+      const { path } = await enviaArquivo<{ path: string }>("/imagens/referencia", { uri: a.uri, name: a.name, mimeType: a.mimeType });
+      setAmpliar({ path });
+    } catch (e: any) { setErro(e.message); }
+  }
+
+  async function amplia(fator: number, modelo: string) {
+    const alvo = ampliar;
+    if (!alvo) return;
+    setAmpliar(null);
+    setErro("");
+    try {
+      if (alvo.mid != null) await api.post(`/imagens/${alvo.mid}/ampliar`, { path: alvo.path, fator, modelo });
+      else {
+        const id = await garanteConv();
+        if (id == null) return;
+        await api.post(`/imagens/${id}/ampliar-arquivo`, { path: alvo.path, fator, modelo });
+      }
+      carrega();
+    } catch (e: any) { setErro(e.message); }
+  }
+
   async function gera() {
     const texto = prompt.trim();
     if (!texto || !aj?.models.length || !local) return;
@@ -171,16 +213,8 @@ export default function Imagens({ conv, onCriada, onTurno, onAbreChat }:
     const opts = Object.fromEntries(Object.entries({ ...local.image, ...aj.opts }).filter(([k]) => !DO_MODELO.includes(k)));
     // A conversa sai antes do comVram: o repetir com confirm é outro closure, com o convId ainda null,
     // e criava uma segunda conversa (o lote rodava nela, a tela ficava na vazia).
-    let id = convId;
-    if (id == null) {
-      try {
-        const nova = await api.post<Conv>("/conversations", { kind: "imagem" });
-        id = nova.id;
-        onCriada(nova);
-        convRef.current = id;
-        setConvId(id);
-      } catch (e: any) { return setErro(e.message); }
-    }
+    const id = await garanteConv();
+    if (id == null) return;
     await comVram(async (confirm) => {
       // Como o desktop: o que está na tela também vira o padrão da ferramenta image_generate do agente.
       await api.put("/local/image/defaults", { ...local.image, ...aj.opts, model: aj.models[0] });
@@ -331,6 +365,7 @@ export default function Imagens({ conv, onCriada, onTurno, onAbreChat }:
                     onPress={() => setFolha(true)} max={180} />
               <Chip rotulo={`×${aj?.count ?? 4}`} onPress={() => setFolha(true)} />
               <Chip rotulo={melhorando ? "melhorando…" : "✨ Melhorar"} onPress={melhora} />
+              <Chip rotulo="⤢ Ampliar" onPress={ampliaDoCelular} />
             </ScrollView>
             <Pressable onPress={gera} disabled={!prompt.trim() || !aj?.models.length}
                        style={[redondo, { opacity: prompt.trim() && aj?.models.length ? 1 : 0.35 }]}>
@@ -411,7 +446,10 @@ export default function Imagens({ conv, onCriada, onTurno, onAbreChat }:
                 onParar={(ids) => Promise.all(ids.map((id) => api.post(`/imagens/${id}/cancelar`).catch(() => {}))).then(carrega)}
                 onZoom={(img) => setVer(img as Img)} onFecha={() => setSlotAberto(null)} />
 
+      <FolhaAmpliar alvo={ampliar} onFecha={() => setAmpliar(null)} onAmpliar={amplia} onErro={setErro} />
+
       <Visor img={ver} onFecha={() => setVer(null)} onBaixar={baixa}
+             onAmpliar={(i, w, h) => { setVer(null); setAmpliar({ path: i.path, mid: i.mid, w, h }); }}
              onEditar={origem ? undefined : (p) => { setRefs((x) => (x.includes(p) || x.length >= MAX_REFS ? x : [...x, p])); setVer(null); }}
              onSemente={origem ? undefined : (n) => { muda({ seed: n, seed_mode: "fixa" }); setVer(null); }}
              onUsarNoSite={ver && chaveSlot(ver) && !ver.destino ? () => { const v = ver; setVer(null); acao(`/imagens/${convId}/escolher`, { slot: chaveSlot(v), path: v.path }); } : undefined} />
@@ -520,12 +558,13 @@ function LoteView({ lote, onVer, onAcao, onReaproveita, onContinua, onBaixar }: 
 /** Imagem em tela cheia: editar a partir dela (vira referência) ou repetir a semente. */
 const chaveSlot = (i: Img) => i.destino ?? i.slot;
 
-function Visor({ img, onFecha, onEditar, onSemente, onBaixar, onUsarNoSite }:
+function Visor({ img, onFecha, onEditar, onSemente, onBaixar, onUsarNoSite, onAmpliar }:
   { img: Img | null; onFecha: () => void; onEditar?: (p: string) => void; onSemente?: (n: number) => void; onBaixar: (p: string[]) => Promise<void>;
-    onUsarNoSite?: () => void }) {
+    onUsarNoSite?: () => void; onAmpliar: (i: Img, w?: number, h?: number) => void }) {
   const inset = useSafeAreaInsets();
   const [baixando, setBaixando] = useState(false);
   const [proporcao, setProporcao] = useState(0.75); // largura/altura real, vinda do onLoad
+  const [tam, setTam] = useState<{ w: number; h: number } | null>(null);
   if (!img) return null;
   return (
     <Modal visible animationType="fade" onRequestClose={onFecha} statusBarTranslucent>
@@ -533,7 +572,7 @@ function Visor({ img, onFecha, onEditar, onSemente, onBaixar, onUsarNoSite }:
         <Pressable style={{ flex: 1 }} onPress={onFecha}>
           <ScrollView maximumZoomScale={4} minimumZoomScale={1} contentContainerStyle={{ flexGrow: 1, justifyContent: "center" }}>
             <Image source={{ uri: urlImagem(img.path, String(img.seed)) }} style={{ width: "100%", aspectRatio: proporcao }} resizeMode="contain"
-                   onLoad={(e) => { const { width, height } = e.nativeEvent.source; if (width && height) setProporcao(width / height); }} />
+                   onLoad={(e) => { const { width, height } = e.nativeEvent.source; if (width && height) { setProporcao(width / height); setTam({ w: width, h: height }); } }} />
           </ScrollView>
         </Pressable>
         <View style={{ padding: 14, paddingBottom: inset.bottom + 14, gap: 10 }}>
@@ -545,12 +584,47 @@ function Visor({ img, onFecha, onEditar, onSemente, onBaixar, onUsarNoSite }:
             <Pressable style={s.btn} disabled={baixando} onPress={async () => { setBaixando(true); await onBaixar([img.path]); setBaixando(false); }}>
               <Text style={s.btnTxt}>{baixando ? "Salvando…" : "Salvar ou compartilhar"}</Text>
             </Pressable>
+            <Pressable style={s.btnSec} onPress={() => onAmpliar(img, tam?.w, tam?.h)}><Text style={s.btnSecTxt}>Ampliar</Text></Pressable>
             {onEditar && <Pressable style={s.btnSec} onPress={() => onEditar(img.path)}><Text style={s.btnSecTxt}>Editar a partir desta</Text></Pressable>}
             {onSemente && <Pressable style={s.btnSec} onPress={() => onSemente(img.seed)}><Text style={s.btnSecTxt}>Usar esta semente</Text></Pressable>}
           </View>
         </View>
       </View>
     </Modal>
+  );
+}
+
+/** Método (ESRGAN que está no PC, ou Lanczos) e fator; como o PainelAmpliar do desktop. */
+function FolhaAmpliar({ alvo, onFecha, onAmpliar, onErro }:
+  { alvo: Ampliar | null; onFecha: () => void; onAmpliar: (fator: number, modelo: string) => void; onErro: (e: string) => void }) {
+  const [cat, setCat] = useState<Ampliadores | null>(null);
+  const [modelo, setModelo] = useState<string | null>(null);
+  const [fator, setFator] = useState<"2" | "4">("2");
+  useEffect(() => {
+    if (alvo) api.get<Ampliadores>("/local/video/ampliadores").then(setCat).catch((e) => onErro(e.message));
+  }, [alvo]);
+  const escolhido = modelo ?? cat?.no_disco[0]?.path ?? "";
+  const tam = (f: number) => (alvo?.w && alvo.h ? ` · ${alvo.w * f}×${alvo.h * f}` : "");
+  return (
+    <Folha aberta={!!alvo} titulo="Ampliar imagem" onFecha={onFecha}>
+      {!cat ? <ActivityIndicator color={c.muted} /> : (
+        <>
+          <Campo rotulo="Método" dica={cat.no_disco.length ? "IA roda na GPU do PC; Lanczos é instantâneo, sem inventar detalhe."
+                                      : "Sem modelo de IA no PC: baixe um RealESRGAN em IA local › Vídeo, no desktop."}>
+            <Lista<string> valor={escolhido} onEscolhe={setModelo} opcoes={[
+              ...cat.no_disco.map((m) => ({ id: m.path, rotulo: m.name, dica: "IA (ESRGAN)" })),
+              { id: "", rotulo: "Lanczos", dica: "Rápido, sem IA" },
+            ]} />
+          </Campo>
+          <Campo rotulo="Fator">
+            <Seletor<"2" | "4"> opcoes={[{ id: "2", rotulo: `2×${tam(2)}` }, { id: "4", rotulo: `4×${tam(4)}` }]} valor={fator} onMuda={setFator} />
+          </Campo>
+          <Pressable style={s.btn} onPress={() => onAmpliar(Number(fator), escolhido)}>
+            <Text style={s.btnTxt}>Ampliar {fator}×</Text>
+          </Pressable>
+        </>
+      )}
+    </Folha>
   );
 }
 
