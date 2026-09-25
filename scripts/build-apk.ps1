@@ -20,7 +20,8 @@ if ($Clean -or -not (Test-Path android)) {
     if ($Clean) {
         Get-CimInstance Win32_Process -Filter "Name='java.exe'" |
             Where-Object { $_.CommandLine -match 'GradleDaemon|kotlin-daemon|KotlinCompileDaemon' } |
-            ForEach-Object { taskkill /T /F /PID $_.ProcessId 2>$null | Out-Null }
+            # Pelo cmd: daemon que já está saindo faz o taskkill errar, e o erro nativo abortava o build inteiro.
+            ForEach-Object { cmd /c "taskkill /T /F /PID $($_.ProcessId) >nul 2>&1" }
     }
     if ($Clean) { npx expo prebuild -p android --clean --no-install } else { npx expo prebuild -p android --no-install }
     if ($LASTEXITCODE) { throw "expo prebuild falhou" }

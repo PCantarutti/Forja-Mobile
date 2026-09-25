@@ -9,6 +9,7 @@ import { Animated, AppState, BackHandler, Linking, Platform, Pressable, RefreshC
 import { SafeAreaProvider, useSafeAreaInsets } from "react-native-safe-area-context";
 import { api, base, carregaPar, escolheBase, salvaPar, viaLan } from "./src/api";
 import Chat, { type Conv } from "./src/Chat";
+import Abertura from "./src/Abertura";
 import CarregandoModelo from "./src/Carregando";
 import Comparar from "./src/Comparar";
 import Video from "./src/Video";
@@ -78,11 +79,13 @@ const kindDe = (k?: string): Pagina => (PAGINAS.some((p) => p.id === k) && k !==
 const pasta = (label?: string) => label?.split(/[\\/]/).filter(Boolean).pop() || "Forja (padrão)";
 
 export default function App() {
+  const [abertura, setAbertura] = useState(true); // só na partida a frio: o app voltando do fundo não repete
   return (
     <SafeAreaProvider>
       <Raiz />
       <CarregandoModelo />
       <Dialogos />
+      {abertura && <Abertura onFim={() => setAbertura(false)} />}
     </SafeAreaProvider>
   );
 }

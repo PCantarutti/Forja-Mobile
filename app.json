@@ -35,7 +35,13 @@
           "recordAudioAndroid": false
         }
       ],
-      "expo-notifications",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/notification-icon.png",
+          "color": "#8a8a8a"
+        }
+      ],
       [
         "expo-media-library",
         {
@@ -52,6 +58,14 @@
           "android": {
             "usesCleartextTraffic": true
           }
+        }
+      ],
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#171717",
+          "image": "./assets/splash-vazio.png",
+          "imageWidth": 1
         }
       ]
     ],

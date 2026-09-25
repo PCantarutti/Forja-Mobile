@@ -1,3 +1,4 @@
+import './src/revoga'; // antes de tudo: a tarefa em segundo plano precisa existir quando o Android acorda o app
 import { registerRootComponent } from 'expo';
 
 import App from './App';

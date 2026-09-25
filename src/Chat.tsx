@@ -5,6 +5,7 @@ import * as DocumentPicker from "expo-document-picker";
 import { api, type Aprovacao, enviaArquivo, lerAjustes, type Live, type Msg, salvaAjustes, streamRun } from "./api";
 import { pergunta as dialogo } from "./Dialogo";
 import { type Anexo, CartaoAnexo, ConvDoAnexo } from "./Anexo";
+import { limpaConversa } from "./revoga";
 import Entrada, { type Ajustes, type Contexto } from "./Entrada";
 import { Abaixo, Cerebro, Cubo, Enviar, Escudo, Globo, Imagem, Parar, Pasta as IconePasta, Relogio, Seta } from "./icones";
 import Markdown, { Codigo } from "./Markdown";
@@ -352,6 +353,11 @@ export default function Chat({ conv, kind, workspace, onCriada, onTelaCheia, pas
       .then((c) => onAbreImagens?.({ ...c, title: c.title ?? "Imagens do site" }))
       .catch((e) => setErro(e.message));
   }, [onAbreImagens]);
+
+  // Notificação de pedido que não está mais esperando (decidido no desktop, turno parado) sai daqui ao abrir.
+  useEffect(() => {
+    if (convId != null && carregado) limpaConversa(convId, aprov.map((a) => a.call.id)).catch(() => {});
+  }, [convId, carregado, aprov]);
 
   function compactar() {
     if (convId == null) return;
