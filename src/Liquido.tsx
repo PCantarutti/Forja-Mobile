@@ -31,12 +31,13 @@ export default function Liquido({ fracao, largura }: { fracao: number; largura: 
     // Cor sólida por dentro e a transparência no grupo, como no desktop: crista e corpo se sobrepõem 1 px e, cada
     // um semitransparente, a sobreposição aparecia como uma linha mais escura. No Android a opacidade de uma View
     // vale para cada filho em separado; needsOffscreenAlphaCompositing desenha o grupo numa camada e aplica uma vez.
+    // Essa camada recorta no tamanho do grupo: a crista fica dentro dele (no topo), não acima, senão some.
     <Animated.View pointerEvents="none" accessibilityRole="progressbar" accessibilityValue={{ min: 0, max: 100, now: pct }}
-      needsOffscreenAlphaCompositing renderToHardwareTextureAndroid
+      needsOffscreenAlphaCompositing
       style={{ position: "absolute", left: 0, right: 0, bottom: 0, opacity: 0.25,
                height: nivel.interpolate({ inputRange: [0, 100], outputRange: ["0%", "100%"] }) }}>
-      <View style={{ flex: 1, backgroundColor: c.sky }} />
-      <View style={{ position: "absolute", top: -9, left: 0, width: largura, height: 10, overflow: "hidden" }}>
+      <View style={{ position: "absolute", top: 9, left: 0, right: 0, bottom: 0, backgroundColor: c.sky }} />
+      <View style={{ position: "absolute", top: 0, left: 0, width: largura, height: 10, overflow: "hidden" }}>
         <Animated.View style={{ width: largura * 2, height: 10,
                                 transform: [{ translateX: onda.interpolate({ inputRange: [0, 1], outputRange: [0, -largura] }) }] }}>
           <Svg width={largura * 2} height={10} viewBox="0 0 200 10" preserveAspectRatio="none">
