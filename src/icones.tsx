@@ -50,3 +50,4 @@ export const Chip = (p: P) => <Icone {...p}><Rect x={6} y={6} width={12} height=
 export const Prancheta = (p: P) => <Icone {...p}><Rect x={5} y={4} width={14} height={17} rx={2} /><Path d="M9 4V3h6v1M9 10h6M9 14h6M9 18h4" /></Icone>;
 export const PainelDir = (p: P) => <Icone {...p}><Rect x={3} y={4} width={18} height={16} rx={2} /><Path d="M15 4v16" /></Icone>;
 export const Acima = (p: P) => <Icone {...p}><Path d="M6 15l6-6 6 6" /></Icone>;
+export const Lapis = (p: P) => <Icone {...p}><Path d="M17 3a2.8 2.8 0 014 4L7.5 20.5 2 22l1.5-5.5z" /></Icone>;

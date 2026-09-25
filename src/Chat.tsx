@@ -7,7 +7,7 @@ import { pergunta as dialogo } from "./Dialogo";
 import { type Anexo, CartaoAnexo, ConvDoAnexo } from "./Anexo";
 import { limpaConversa } from "./revoga";
 import Entrada, { type Ajustes, type Contexto } from "./Entrada";
-import { Abaixo, Cerebro, Cubo, Enviar, Escudo, Globo, Imagem, Parar, Pasta as IconePasta, Relogio, Seta } from "./icones";
+import { Abaixo, Cerebro, Cubo, Enviar, Escudo, Globo, Imagem, Lapis, Parar, Pasta as IconePasta, Relogio, Seta } from "./icones";
 import Markdown, { Codigo } from "./Markdown";
 import { LogoMarca } from "./Logo";
 import Site, { type Servidor } from "./Site";
@@ -29,6 +29,9 @@ const NOTA: Record<string, string> = {
   hook: "Hook do projeto", nudge: "Lembrete automático", skill: "Skill carregada",
   mudanca: "Mudança de modo ou modelo", referencia: "Conversa citada",
 };
+
+// Editar e enviar de novo (o lápis da mensagem do usuário). Sem provider = só leitura (Transcricao do Worker).
+const Reenvio = createContext<{ rodando: boolean; reenvia: (id: number, texto: string) => void } | null>(null);
 
 type Call = { id: string; name: string; arguments: any };
 type Stats = { model?: string; tokens?: number; seconds?: number; tps?: number | null; estimated?: boolean };
@@ -287,10 +290,7 @@ export default function Chat({ conv, kind, workspace, onCriada, onTelaCheia, pas
       const id = idNovo.current ?? (await garanteConv());
       const vai = anexos;
       setAnexos([]);
-      // O POST /run devolve o SSE; basta disparar e seguir pelo /live, que já traz o run_id.
-      api.post(`/conversations/${id}/run`, { provider: ajustes.provider, model: ajustes.model, permission: kind === "chat" ? "manual" : perm,
-        effort: kind === "maestro" && ajustes.effort === "extremo" ? "maximo" : ajustes.effort, content,
-        attachments: vai.map(({ local: _l, ...a }) => a) }).catch(() => {}); // o caminho do celular não vai para o PC
+      roda(id, content, vai);
       // Conversa nova: trocar o convId recria o `carrega`, e o efeito dele puxa o /live com o run.
       if (id !== convId) setTimeout(() => setConvId(id), 700);
       else setTimeout(carrega, 700);
@@ -298,6 +298,38 @@ export default function Chat({ conv, kind, workspace, onCriada, onTelaCheia, pas
       setErro(e.message);
     }
   }
+
+  /** O POST /run devolve o SSE; basta disparar e seguir pelo /live, que já traz o run_id. */
+  function roda(id: number, content: string, vai: Anexo[] = []) {
+    api.post(`/conversations/${id}/run`, { provider: ajustes.provider, model: ajustes.model, permission: kind === "chat" ? "manual" : perm,
+      effort: kind === "maestro" && ajustes.effort === "extremo" ? "maximo" : ajustes.effort, content,
+      attachments: vai.map(({ local: _l, ...a }) => a) }).catch(() => {}); // o caminho do celular não vai para o PC
+  }
+
+  /** Editar e enviar de novo: apaga da mensagem em diante e roda com o texto novo (rewindAndRun do desktop).
+   *  Se os turnos apagados mexeram em arquivos, pergunta se desfaz também. */
+  const reenvia = useCallback(async (mid: number, content: string) => {
+    if (convId == null || runId) return;
+    if (!ajustes.model) return setErro("Escolha um modelo no botão de modelo, embaixo da caixa.");
+    const vai = async (restore_files: boolean) => {
+      try {
+        const r = await api.post<{ messages: Msg[] }>(`/conversations/${convId}/rewind`, { message_id: mid, keep: false, restore_files });
+        noFim.current = true;
+        setMsgs([...r.messages, { id: -Date.now(), role: "user", content }]);
+        roda(convId, content);
+        setTimeout(carrega, 700);
+      } catch (e: any) { setErro(e.message); }
+    };
+    const cps = await api.get<Record<string, string[]>>(`/conversations/${convId}/checkpoints`).catch(() => ({}));
+    const arquivos = new Set(Object.entries(cps).filter(([t]) => Number(t) >= mid).flatMap(([, f]) => f));
+    if (!arquivos.size) return vai(false);
+    dialogo("Editar e enviar de novo", `Os turnos apagados alteraram ${arquivos.size} arquivo(s). Desfazer essas alterações também?`, [
+      { texto: "Cancelar", estilo: "cancelar" },
+      { texto: "Manter arquivos", acao: () => vai(false) },
+      { texto: "Desfazer", acao: () => vai(true) },
+    ]);
+  }, [convId, runId, ajustes, kind, perm, carrega]);
+  const reenvio = useMemo(() => ({ rodando: !!runId, reenvia }), [runId, reenvia]);
 
   async function trocaPerm(p: string) {
     setPerm(p);
@@ -396,10 +428,12 @@ export default function Chat({ conv, kind, workspace, onCriada, onTelaCheia, pas
     <View style={{ flex: 1, paddingBottom: teclado, display: siteAberto ? "none" : "flex" }}>
       <ConvDoAnexo.Provider value={convId}>
       <AbreSlots.Provider value={abreSlots}>
+      <Reenvio.Provider value={reenvio}>
       <FlatList
         ref={lista}
         data={visiveis}
         initialNumToRender={visiveis.length}
+        keyboardShouldPersistTaps="handled" // com o teclado aberto, o 1º toque em "Enviar de novo" só fechava o teclado
         windowSize={31}
         ListHeaderComponent={segs.length > limite ? (
           <Pressable onPress={() => { noFim.current = false; setLimite((l) => l + 60); }} style={[s.btnSec, { alignSelf: "center" }]}>
@@ -449,6 +483,7 @@ export default function Chat({ conv, kind, workspace, onCriada, onTelaCheia, pas
           </View>
         }
       />
+      </Reenvio.Provider>
       </AbreSlots.Provider>
       </ConvDoAnexo.Provider>
       {longe && (
@@ -469,21 +504,7 @@ export default function Chat({ conv, kind, workspace, onCriada, onTelaCheia, pas
 
 // memo: o rascunho muda a cada token, e sem isso a lista inteira (Markdown incluso) redesenhava junto.
 const Segmento = memo(function Segmento({ seg, resultados, pendentes }: { seg: Seg; resultados: Map<any, Msg>; pendentes: Set<string> }) {
-  if (seg.tipo === "user")
-    return (
-      <View style={{ alignSelf: "flex-end", maxWidth: "88%", gap: 6, alignItems: "flex-end" }}>
-        {!!seg.m.meta?.attachments?.length && (
-          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6, justifyContent: "flex-end" }}>
-            {seg.m.meta.attachments.map((a: Anexo) => <CartaoAnexo key={a.path} a={a} />)}
-          </View>
-        )}
-        {!!seg.m.content && (
-          <View style={{ backgroundColor: c.raised, borderRadius: 22, paddingHorizontal: 16, paddingVertical: 10 }}>
-            <Text style={s.txt} selectable>{seg.m.content}</Text>
-          </View>
-        )}
-      </View>
-    );
+  if (seg.tipo === "user") return <MsgUsuario m={seg.m} />;
   if (seg.tipo === "texto") return <Markdown texto={seg.m.content ?? ""} />;
   if (seg.tipo === "evento") return <Evento m={seg.m} />;
   if (seg.tipo === "stats") return <LinhaStats s={seg.s} />;
@@ -504,6 +525,46 @@ const Segmento = memo(function Segmento({ seg, resultados, pendentes }: { seg: S
   if (seg.tipo === "decisao") return <Decisao call={seg.call} r={resultados.get(seg.call.id)} pendente={pendentes.has(seg.call.id)} />;
   return <Grupo pecas={seg.pecas} resultados={resultados} pendentes={pendentes} />;
 });
+
+/** Mensagem do usuário. O lápis fica sempre à vista (no toque não há hover) e edita no lugar, como no desktop. */
+function MsgUsuario({ m }: { m: Msg }) {
+  const r = useContext(Reenvio);
+  const [texto, setTexto] = useState<string | null>(null); // null = não está editando
+  if (texto !== null)
+    return (
+      <View style={{ alignSelf: "stretch", gap: 10, borderColor: c.line, borderWidth: 1, borderRadius: 22, backgroundColor: c.surface, padding: 12 }}>
+        <TextInput value={texto} onChangeText={setTexto} multiline autoFocus style={[s.txt, { maxHeight: 220, padding: 4 }]}
+                   placeholderTextColor={c.faint} />
+        <View style={{ flexDirection: "row", justifyContent: "flex-end", gap: 8 }}>
+          <Pressable onPress={() => setTexto(null)} style={s.btnSec}><Text style={s.btnSecTxt}>Cancelar</Text></Pressable>
+          <Pressable disabled={!texto.trim() || r?.rodando} style={[s.btn, (!texto.trim() || r?.rodando) && { opacity: 0.4 }]}
+                     onPress={() => { const t = texto.trim(); setTexto(null); r?.reenvia(m.id, t); }}>
+            <Text style={s.btnTxt}>Enviar de novo</Text>
+          </Pressable>
+        </View>
+      </View>
+    );
+  return (
+    <View style={{ alignSelf: "flex-end", maxWidth: "88%", gap: 6, alignItems: "flex-end" }}>
+        {!!m.meta?.attachments?.length && (
+          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6, justifyContent: "flex-end" }}>
+            {m.meta.attachments.map((a: Anexo) => <CartaoAnexo key={a.path} a={a} />)}
+          </View>
+        )}
+        {!!m.content && (
+          <View style={{ backgroundColor: c.raised, borderRadius: 22, paddingHorizontal: 16, paddingVertical: 10 }}>
+            <Text style={s.txt} selectable>{m.content}</Text>
+          </View>
+        )}
+      {r && m.id > 0 && !!m.content && (
+        <Pressable onPress={() => setTexto(m.content ?? "")} disabled={r.rodando} hitSlop={10} accessibilityLabel="Editar e enviar de novo"
+                   style={{ padding: 4, opacity: r.rodando ? 0.3 : 1 }}>
+          <Lapis size={15} color={c.faint} />
+        </Pressable>
+      )}
+    </View>
+  );
+}
 
 const EVENTO: Record<string, [string, string, string]> = { // título, borda, texto (EventNotice do desktop)
   warning: ["Aviso", "#78350f", "#fde68a"], error: ["Erro", "#7f1d1d", "#fecaca"], imagens: ["Imagens do site", c.line, c.muted],
