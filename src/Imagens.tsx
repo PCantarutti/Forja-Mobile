@@ -494,8 +494,11 @@ function LoteView({ lote, onVer, onAcao, onReaproveita, onContinua, onBaixar }: 
       <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
         {lote.imgs.map((img) => {
           // Prévia ao vivo: o sd-cli regrava o arquivo de prévia a cada passo; o &v= fura o cache da imagem.
+          // ampliação em andamento: a original por trás, como no desktop
+          const origem = lote.msg.meta?.opts?.ampliacao?.origem as string | undefined;
           const src = img.status === "gerando" && img.preview ? urlImagem(img.preview, String(img.progress ?? 0)) :
-                      ["pronta", "mantida"].includes(img.status) ? urlImagem(img.path) : null;
+                      ["pronta", "mantida"].includes(img.status) ? urlImagem(img.path) :
+                      ["gerando", "pendente"].includes(img.status) && origem ? urlImagem(origem) : null;
           const marcada = manter.includes(img.path);
           return (
             <Pressable key={img.path + img.seed} style={{ width: lado, height: lado * 1.25, borderRadius: 14, overflow: "hidden",
