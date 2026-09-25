@@ -24,6 +24,7 @@ import { LogoMarca, LogoTexto } from "./src/Logo";
 import EscolhePasta, { nomePasta } from "./src/Pasta";
 import Site, { type Servidor } from "./src/Site";
 import { Dialogos, pergunta } from "./src/Dialogo";
+import { NavegadorDoApp } from "./src/Link";
 import { c, mono, s } from "./src/tema";
 
 Notifications.setNotificationHandler({
@@ -86,6 +87,7 @@ export default function App() {
       <Raiz />
       <CarregandoModelo />
       <Dialogos />
+      <NavegadorDoApp />
       {abertura && <Abertura onFim={() => setAbertura(false)} />}
     </SafeAreaProvider>
   );

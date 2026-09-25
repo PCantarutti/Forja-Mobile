@@ -23,7 +23,8 @@ const VIEWPORT_DESKTOP = `(function () {
 })(); true;`;
 
 /** Site que o agente subiu, aberto pela tailnet: o backend publica a porta (`tailscale serve`) e devolve a URL. */
-export default function Site({ nome, caminho = "" }: { nome: string; caminho?: string }) {
+/** `direto`: um endereço qualquer (link de fora que a IA mandou), aberto como está, sem publicar porta. */
+export default function Site({ nome, caminho = "", direto }: { nome: string; caminho?: string; direto?: string }) {
   const [url, setUrl] = useState<string | null>(null);
   const [src, setSrc] = useState<string | null>(null); // página atual: sobrevive à troca de modo
   const atual = useRef<string | null>(null);
@@ -36,10 +37,11 @@ export default function Site({ nome, caminho = "" }: { nome: string; caminho?: s
   useEffect(() => {
     setUrl(null);
     setErro("");
+    if (direto) return void (setUrl(direto), setSrc(direto));
     api.post<{ url: string }>(`/mobile/expose/${encodeURIComponent(nome)}`)
       .then((r) => { setUrl(r.url); setSrc(r.url + caminho); })
       .catch((e) => setErro(e.message));
-  }, [nome]);
+  }, [nome, direto]);
 
   if (erro) return <Text style={[s.muted, { color: c.red, padding: 16 }]}>{erro}</Text>;
   if (!url || !src) return <View style={{ flex: 1, justifyContent: "center" }}><ActivityIndicator color={c.muted} /></View>;

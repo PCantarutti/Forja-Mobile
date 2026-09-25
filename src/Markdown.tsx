@@ -1,4 +1,5 @@
-import { Linking, ScrollView, Text, View } from "react-native";
+import { ScrollView, Text, View } from "react-native";
+import { abreLink } from "./Link";
 import { c, mono } from "./tema";
 
 // ponytail: Markdown mínimo (títulos, listas, citação, bloco de código, **negrito**, `código`, [link](url)).
@@ -7,17 +8,22 @@ import { c, mono } from "./tema";
 const base = { color: c.fg, fontSize: 15, lineHeight: 23 };
 
 function Inline({ texto, style }: { texto: string; style?: object }) {
-  const partes = texto.split(/(\*\*[^*]+\*\*|`[^`]+`|\[[^\]]+\]\([^)]+\))/g).filter(Boolean);
+  // URL solta também é link (a IA escreve "Acesse http://localhost:3456", às vezes entre crases).
+  const partes = texto.split(/(\*\*[^*]+\*\*|`[^`]+`|\[[^\]]+\]\([^)]+\)|https?:\/\/[^\s)`>\]]+)/g).filter(Boolean);
   return (
     <Text style={[base, style]} selectable>
       {partes.map((p, i) => {
         if (p.startsWith("**") && p.endsWith("**"))
           return <Text key={i} style={{ fontWeight: "700", color: "#fff" }}>{p.slice(2, -2)}</Text>;
+        if (/^`https?:\/\/\S+`$/.test(p) || /^https?:\/\//.test(p)) {
+          const url = p.replace(/^`|`$/g, "").replace(/[.,;:!?]+$/, "");
+          return <Text key={i} style={{ color: c.link, textDecorationLine: "underline" }} onPress={() => abreLink(url)}>{p.replace(/^`|`$/g, "")}</Text>;
+        }
         if (p.startsWith("`") && p.endsWith("`"))
           return <Text key={i} style={{ fontFamily: mono, color: c.inlineCode, backgroundColor: c.raised, fontSize: 13 }}> {p.slice(1, -1)} </Text>;
         const link = p.match(/^\[([^\]]+)\]\(([^)]+)\)$/);
         if (link)
-          return <Text key={i} style={{ color: c.link, textDecorationLine: "underline" }} onPress={() => Linking.openURL(link[2])}>{link[1]}</Text>;
+          return <Text key={i} style={{ color: c.link, textDecorationLine: "underline" }} onPress={() => abreLink(link[2])}>{link[1]}</Text>;
         return p;
       })}
     </Text>
