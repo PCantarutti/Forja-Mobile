@@ -33,7 +33,8 @@ type Ajustes = { models: string[]; count: number; seed: number; seed_mode: strin
 // Ampliar: uma imagem de um lote (mid = mensagem dele) ou uma do celular (já enviada ao PC, sem mid).
 type Ampliar = { path: string; mid?: number; w?: number; h?: number; prompt?: string }; // prompt: o que gerou a imagem
 // GET /local/video/ampliadores: os modelos no PC. tipo esrgan (rápido) ou seedvr2 (difusão, pelo ComfyUI do PC, minutos)
-type Ampliadores = { no_disco: { path: string; name: string; tipo?: "esrgan" | "seedvr2" | "spandrel" | "redesenhar" }[]; comfy?: { instalado: string } };
+type Ampliadores = { no_disco: { path: string; name: string; tipo?: "esrgan" | "seedvr2" | "spandrel" | "redesenhar"; motor?: "comfy" | "sd" }[];
+  comfy?: { instalado: string } };
 
 // Listas do desktop (ImagensView / LocalPanel).
 const AMOSTRADORES = ["euler_a", "euler", "heun", "dpm2", "dpm++2s_a", "dpm++2m", "dpm++2mv2", "ipndm", "lcm", "ddim_trailing", "tcd",
@@ -661,7 +662,8 @@ function FolhaAmpliar({ alvo, onFecha, onAmpliar, onErro }:
     api.get<Ampliadores>("/local/video/ampliadores").then(setCat).catch((e) => onErro(e.message));
   }, [alvo]);
   // SeedVR2 e DAT/HAT (spandrel) só com o ComfyUI instalado no PC; o padrão é sempre um ESRGAN (rápido, leve)
-  const metodos = (cat?.no_disco ?? []).filter((m) => (m.tipo ?? "esrgan") === "esrgan" || !!cat?.comfy?.instalado);
+  // o redesenho pelo sd-cli (Qwen-Image, Flux) não precisa do ComfyUI
+  const metodos = (cat?.no_disco ?? []).filter((m) => (m.tipo ?? "esrgan") === "esrgan" || m.motor === "sd" || !!cat?.comfy?.instalado);
   const escolhido = modelo ?? metodos.find((m) => (m.tipo ?? "esrgan") === "esrgan")?.path ?? "";
   const tam = (f: number) => (alvo?.w && alvo.h ? ` · ${alvo.w * f}×${alvo.h * f}` : "");
   const redesenha = metodos.find((m) => m.path === escolhido)?.tipo === "redesenhar";
