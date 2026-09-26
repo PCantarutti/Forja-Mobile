@@ -7,7 +7,7 @@ import { Abaixo, Cubo, Enviar, Escudo, Parar } from "./icones";
 import Modelos, { type Escolha } from "./Modelos";
 import { c, mono, s } from "./tema";
 import { type Anexo, CartaoAnexo } from "./Anexo";
-import { Chip, Folha, Lista } from "./ui";
+import { Chip, Folha, Lista, Opcao } from "./ui";
 
 // Mesmos menus do desktop (Controls.tsx): permissão e esforço.
 export const PERMISSOES = [
@@ -120,6 +120,7 @@ export default function Entrada(p: {
   ajustes: Ajustes; onAjustes: (a: Ajustes, gguf?: string) => void; ctx: Contexto | null; podeCompactar: boolean; onCompactar: () => void;
   anexos: Anexo[]; enviando: boolean; onAnexar: () => void; onTiraAnexo: (path: string) => void;
   onEnvia: (t: string) => unknown; /* false = recusou: o texto fica no campo */ onPara: () => void; conv?: number | null;
+  autonomo?: boolean; onAutonomo?: (v: boolean) => void; // trabalho autônomo nesta conversa (o mesmo do menu Modo no PC)
 }) {
   const [t, setT] = useState("");
   // /skill:nome em qualquer ponto do texto (desktop App.tsx inlineQuery): o backend lê do conteúdo, aqui só completa.
@@ -165,7 +166,7 @@ export default function Entrada(p: {
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6, alignItems: "center" }} style={{ flex: 1 }}>
             <Chip rotulo="📎" onPress={p.onAnexar} />
             {agentica && (
-              <Chip rotulo={perm.label} onPress={() => setMenu("perm")} cor={p.perm === "bypass" ? c.amber : undefined}
+              <Chip rotulo={p.autonomo ? `${perm.label} · auto` : perm.label} onPress={() => setMenu("perm")} cor={p.perm === "bypass" ? c.amber : undefined}
                     icone={<Escudo size={14} color={p.perm === "bypass" ? c.amber : c.muted} />} />
             )}
             <Chip rotulo={esforco.rotulo} onPress={() => setMenu("esforco")} icone={<Abaixo size={12} color={c.faint} />} />
@@ -185,6 +186,12 @@ export default function Entrada(p: {
         <Lista opcoes={PERMISSOES.filter((x) => !(p.rodando && x.id === "plan"))
                   .map((x) => ({ id: x.id, rotulo: x.label, dica: x.hint, cor: x.id === "bypass" ? c.amber : undefined }))}
                valor={p.perm} onEscolhe={(v) => { setMenu(null); p.onPerm(v); }} />
+        {p.onAutonomo && (
+          <View style={{ marginTop: 14, borderTopWidth: 1, borderTopColor: c.line, paddingTop: 14 }}>
+            <Opcao rotulo="Trabalho autônomo nesta conversa" valor={!!p.autonomo} onMuda={p.onAutonomo}
+                   dica="Segue sozinho até o orçamento, anota as perguntas, se recupera de loop e, se travar, para com relatório e aviso aqui no celular." />
+          </View>
+        )}
       </Folha>
       {p.ctx && (
         <Folha aberta={menu === "contexto"} titulo="Janela de contexto" onFecha={() => setMenu(null)}>

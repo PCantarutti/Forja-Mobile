@@ -269,6 +269,22 @@ export default function Chat({ conv, kind, workspace, onCriada, onTelaCheia, pas
     return () => clearInterval(t);
   }, [convId, runId, carrega]);
 
+  // Trabalho autônomo por conversa: o /activity diz quais estão ligadas, então PC e celular acompanham ao vivo.
+  const [autonomo, setAutonomo] = useState(false);
+  useEffect(() => {
+    if (convId == null) { setAutonomo(false); return; }
+    const olha = () => api.get<{ autonomo?: number[] }>("/activity")
+      .then((a) => a.autonomo && setAutonomo(a.autonomo.includes(convId))).catch(() => {});
+    olha();
+    const t = setInterval(olha, 3000);
+    return () => clearInterval(t);
+  }, [convId]);
+  const mudaAutonomo = (v: boolean) => {
+    if (convId == null) return;
+    setAutonomo(v);
+    api.put(`/conversations/${convId}/autonomo`, { ligado: v }).catch((e) => { setAutonomo(!v); setErro(e.message); });
+  };
+
   /** Conversa nova nasce no backend no primeiro envio (ou no primeiro anexo, que precisa da pasta dela). */
   async function garanteConv(): Promise<number> {
     if (convId != null) return convId;
@@ -527,6 +543,7 @@ export default function Chat({ conv, kind, workspace, onCriada, onTelaCheia, pas
         </Pressable>
       )}
       <Entrada kind={kind} conv={convId} teclado={teclado > 0} rodando={!!runId} perm={perm} onPerm={trocaPerm}
+               autonomo={autonomo} onAutonomo={kind !== "chat" && convId != null ? mudaAutonomo : undefined}
                onEnvia={(t) => {
                  // Recusa antes de limpar o campo: sem modelo ou sem pasta, o texto digitado não se perde.
                  const motivo = runId ? "" : !ajustes.model ? "Escolha um modelo no botão de modelo, embaixo da caixa."
