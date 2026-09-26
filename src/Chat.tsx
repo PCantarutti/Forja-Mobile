@@ -270,19 +270,22 @@ export default function Chat({ conv, kind, workspace, onCriada, onTelaCheia, pas
   }, [convId, runId, carrega]);
 
   // Trabalho autônomo por conversa: o /activity diz quais estão ligadas, então PC e celular acompanham ao vivo.
-  const [autonomo, setAutonomo] = useState(false);
+  // O valor vem com a conversa a que se refere: trocar de conversa não herda o da anterior.
+  const [aut, setAut] = useState<{ conv: number | null; ligado: boolean }>({ conv: null, ligado: false });
+  const autonomo = aut.conv === convId && aut.ligado;
   useEffect(() => {
-    if (convId == null) { setAutonomo(false); return; }
+    if (convId == null) return;
     const olha = () => api.get<{ autonomo?: number[] }>("/activity")
-      .then((a) => a.autonomo && setAutonomo(a.autonomo.includes(convId))).catch(() => {});
+      .then((a) => a.autonomo && setAut({ conv: convId, ligado: a.autonomo.includes(convId) })).catch(() => {});
     olha();
     const t = setInterval(olha, 3000);
     return () => clearInterval(t);
   }, [convId]);
   const mudaAutonomo = (v: boolean) => {
     if (convId == null) return;
-    setAutonomo(v);
-    api.put(`/conversations/${convId}/autonomo`, { ligado: v }).catch((e) => { setAutonomo(!v); setErro(e.message); });
+    setAut({ conv: convId, ligado: v });
+    api.put(`/conversations/${convId}/autonomo`, { ligado: v })
+      .catch((e) => { setAut({ conv: convId, ligado: !v }); setErro(e.message); });
   };
 
   /** Conversa nova nasce no backend no primeiro envio (ou no primeiro anexo, que precisa da pasta dela). */
