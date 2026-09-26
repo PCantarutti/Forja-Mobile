@@ -27,7 +27,8 @@ type Origem = { message_id: number; workspace: string; projeto: string; chat: { 
 type Lote = { user?: Msg; msg: Msg; imgs: Img[] };
 type ModeloImg = { path: string; name: string; params?: Record<string, any> };
 type LocalImg = { image: Record<string, any>; image_models: ModeloImg[]; runtimes: any };
-type Opts = { steps: number; cfg: number; width: number; height: number; sampler: string; negative: string };
+type Opts = { steps: number; cfg: number; width: number; height: number; sampler: string; negative: string;
+  hires?: boolean; hires_scale?: number; hires_denoise?: number }; // alta resolução (hires fix do sd-cli), como no PC
 type Ajustes = { models: string[]; count: number; seed: number; seed_mode: string; opts: Opts };
 // Ampliar: uma imagem de um lote (mid = mensagem dele) ou uma do celular (já enviada ao PC, sem mid).
 type Ampliar = { path: string; mid?: number; w?: number; h?: number; prompt?: string }; // prompt: o que gerou a imagem
@@ -435,6 +436,17 @@ export default function Imagens({ conv, onCriada, onTurno, onAbreChat }:
           <Campo rotulo="Amostrador">
             <Seletor opcoes={AMOSTRADORES.map((a) => ({ id: a, rotulo: a }))} valor={aj.opts.sampler} onMuda={(v) => mudaOpts({ sampler: v })} />
           </Campo>
+          <Campo rotulo="Alta resolução" dica="Gera, amplia e o próprio modelo redesenha por cima: mais detalhe, bem mais tempo.">
+            <Seletor<"0" | "1.5" | "2"> opcoes={[{ id: "0", rotulo: "Desligada" }, { id: "1.5", rotulo: "1,5×" }, { id: "2", rotulo: "2×" }]}
+                     valor={aj.opts.hires ? (String(aj.opts.hires_scale ?? 1.5) as "1.5" | "2") : "0"}
+                     onMuda={(v) => mudaOpts(v === "0" ? { hires: false } : { hires: true, hires_scale: Number(v) })} />
+          </Campo>
+          {aj.opts.hires && (
+            <Campo rotulo="Denoise" dica="Quanto a 2ª passada pode mudar: 0,3 mantém e limpa; 0,6 inventa detalhe.">
+              <Seletor<"0.3" | "0.45" | "0.6"> opcoes={[{ id: "0.3", rotulo: "0,3" }, { id: "0.45", rotulo: "0,45" }, { id: "0.6", rotulo: "0,6" }]}
+                       valor={String(aj.opts.hires_denoise ?? 0.45) as "0.3" | "0.45" | "0.6"} onMuda={(v) => mudaOpts({ hires_denoise: Number(v) })} />
+            </Campo>
+          )}
           <Campo rotulo="Sementes">
             <Seletor opcoes={SEMENTES} valor={aj.seed_mode} onMuda={(v) => muda({ seed_mode: v })} />
           </Campo>
@@ -591,7 +603,10 @@ const chaveSlot = (i: Img) => i.destino ?? i.slot;
 
 /** Redesenho: a força e o prompt usados, para a linha de baixo do Visor ("" se o lote não é um redesenho). */
 function redesenhoDe(msg?: Msg): string {
+  const o = msg?.meta?.opts as { hires?: boolean; hires_scale?: number; hires_denoise?: number } | undefined;
   const a = msg?.meta?.opts?.ampliacao as { forca?: number; prompt?: string } | undefined;
+  const n = (x: number) => String(x).replace(".", ",");
+  if (o?.hires) return `alta resolução ${n(o.hires_scale ?? 1.5)}× · denoise ${n(o.hires_denoise ?? 0.45)}`;
   return a?.forca == null ? "" : `redesenho · força ${a.forca.toFixed(2).replace(".", ",")}${a.prompt ? ` · “${a.prompt}”` : ""}`;
 }
 
