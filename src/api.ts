@@ -85,6 +85,7 @@ export const api = {
   get: <T>(path: string, espera?: number) => req<T>(path, { espera }),
   post: <T>(path: string, body?: unknown, espera?: number) => req<T>(path, { method: "POST", body, espera }),
   put: <T>(path: string, body: unknown) => req<T>(path, { method: "PUT", body }),
+  patch: <T>(path: string, body: unknown) => req<T>(path, { method: "PATCH", body }),
 };
 
 /** SSE lido por fetch (mesmo formato do frontend/src/api.ts: `data: {json}` + linha em branco). POST quando há `body`.

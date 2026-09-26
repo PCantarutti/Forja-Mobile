@@ -11,12 +11,15 @@ import { Abaixo, Cerebro, Cubo, Enviar, Escudo, Globo, Imagem, Lapis, Parar, Pas
 import Markdown, { Codigo } from "./Markdown";
 import { LogoMarca } from "./Logo";
 import Site, { type Servidor } from "./Site";
+import { CardNoChat, type CardMini } from "./Board";
 import { c, mono, s } from "./tema";
 
 // Mesmas frases do desktop (MessageView.tsx, ACTION): a 1ª ferramenta do grupo abre o resumo.
 const ACAO: Record<string, string> = {
   run_command: "Executou um comando", read_file: "Leu um arquivo", edit_file: "Editou um arquivo",
   write_file: "Escreveu um arquivo", list_dir: "Olhou a pasta", search: "Procurou no projeto",
+  tree: "Olhou a árvore do projeto", code_search: "Procurou no código", board_card: "Criou card no board", ast: "Leu a estrutura do código", imports: "Conferiu os imports",
+  explore: "Explorou o código",
   web_search: "Pesquisou na web", fetch_url: "Abriu uma página", delegate_task: "Delegou a um subagente",
   update_tasks: "Atualizou as tarefas", ask_user: "Perguntou ao usuário", run_task: "Despachou uma tarefa",
   plan_feature: "Planejou uma funcionalidade", browser_validate: "Validou uma página",
@@ -32,6 +35,8 @@ const NOTA: Record<string, string> = {
 
 // Editar e enviar de novo (o lápis da mensagem do usuário). Sem provider = só leitura (Transcricao do Worker).
 const Reenvio = createContext<{ rodando: boolean; reenvia: (id: number, texto: string) => void } | null>(null);
+// Tocar no card que a IA criou abre o board nele (a página Board do app).
+const AbreCard = createContext<((c: CardMini) => void) | undefined>(undefined);
 
 type Call = { id: string; name: string; arguments: any };
 type Stats = { model?: string; tokens?: number; seconds?: number; tps?: number | null; estimated?: boolean };
@@ -43,7 +48,8 @@ type Seg =
   | { tipo: "decisao"; id: string; call: Call }
   | { tipo: "evento"; m: Msg }
   | { tipo: "retry"; id: string; tentativa: string; erro: string; falhou: boolean }
-  | { tipo: "stats"; id: string; s: Stats };
+  | { tipo: "stats"; id: string; s: Stats }
+  | { tipo: "cards"; id: string; cards: CardMini[] };
 
 // Avisos de reconexão ao modelo (agent.py: "... Tentando de novo em 2.0s (2/5)..." e a compactação que falha
 // junto): cada tentativa grava um evento, e na tela eles viram UM cartão que se atualiza e some ao conectar.
@@ -58,6 +64,7 @@ function segmentos(msgs: Msg[]): Seg[] {
   const g: { atual: Extract<Seg, { tipo: "grupo" }> | null } = { atual: null };
   let notas: Peca[] = []; // avisos ao modelo esperando o próximo grupo abrir
   let turno: Stats[] = [];
+  let cards: CardMini[] = []; // board_card do turno: vão no FIM da resposta, como no desktop
   let retry: Extract<Seg, { tipo: "retry" }> | null = null; // cartão de reconexão aberto
   const conectou = () => { if (retry && !retry.falhou) out.splice(out.indexOf(retry), 1); retry = null; };
   const fecha = () => { if (g.atual) out.push(g.atual); g.atual = null; };
@@ -70,6 +77,8 @@ function segmentos(msgs: Msg[]): Seg[] {
   const fechaTurno = (id: number) => {
     if (notas.length) abre(id);
     fecha();
+    if (cards.length) out.push({ tipo: "cards", id: `c${id}`, cards });
+    cards = [];
     if (!turno.length) return;
     const u = turno[turno.length - 1];
     out.push({ tipo: "stats", id: `s${id}`, s: { ...u, tokens: turno.reduce((a, t) => a + (t.tokens ?? 0), 0),
@@ -78,7 +87,11 @@ function segmentos(msgs: Msg[]): Seg[] {
   };
   for (const m of msgs) {
     const kind = m.role === "event" ? String(m.meta?.kind ?? "") : "";
-    if (m.role === "tool") continue; // resultado é desenhado dentro do grupo, não corta
+    if (m.role === "tool") { // resultado é desenhado dentro do grupo, não corta
+      const bc = m.meta?.board_card as CardMini | undefined;
+      if (bc && !cards.some((x) => x.id === bc.id)) cards.push(bc); // "já existe" repete o mesmo card
+      continue;
+    }
     if (kind in NOTA) {
       const nota: Peca = { tipo: "nota", id: `n${m.id}`, titulo: NOTA[kind], texto: m.content ?? "" };
       if (g.atual) g.atual.pecas.push(nota);
@@ -131,9 +144,9 @@ export type Conv = { id: number; title: string; kind?: string; workspace?: strin
 /** Botão da skill gerar-imagens (resultado de `imagens_pendentes`): abre a conversa de Imagens do projeto. */
 const AbreSlots = createContext<(toolMsgId: number) => void>(() => {});
 
-export default function Chat({ conv, kind, workspace, onCriada, onTelaCheia, pasta, onPasta, onTurno, onAbreImagens }:
+export default function Chat({ conv, kind, workspace, onCriada, onTelaCheia, pasta, onPasta, onTurno, onAbreImagens, onAbreCard }:
   { conv: Conv | null; kind: string; workspace?: string | null; onCriada: (c: Conv) => void; onTelaCheia: (sim: boolean) => void;
-    pasta?: string; onPasta: () => void; onTurno: () => void; onAbreImagens?: (c: Conv) => void }) {
+    pasta?: string; onPasta: () => void; onTurno: () => void; onAbreImagens?: (c: Conv) => void; onAbreCard?: (c: CardMini) => void }) {
   const [convId, setConvId] = useState<number | null>(conv?.id ?? null);
   const [msgs, setMsgs] = useState<Msg[]>([]);
   const [draft, setDraft] = useState("");
@@ -447,6 +460,7 @@ export default function Chat({ conv, kind, workspace, onCriada, onTelaCheia, pas
       <ConvDoAnexo.Provider value={convId}>
       <AbreSlots.Provider value={abreSlots}>
       <Reenvio.Provider value={reenvio}>
+      <AbreCard.Provider value={onAbreCard}>
       <FlatList
         ref={lista}
         data={visiveis}
@@ -501,6 +515,7 @@ export default function Chat({ conv, kind, workspace, onCriada, onTelaCheia, pas
           </View>
         }
       />
+      </AbreCard.Provider>
       </Reenvio.Provider>
       </AbreSlots.Provider>
       </ConvDoAnexo.Provider>
@@ -533,6 +548,7 @@ const Segmento = memo(function Segmento({ seg, resultados, pendentes }: { seg: S
   if (seg.tipo === "texto") return <Markdown texto={seg.m.content ?? ""} />;
   if (seg.tipo === "evento") return <Evento m={seg.m} />;
   if (seg.tipo === "stats") return <LinhaStats s={seg.s} />;
+  if (seg.tipo === "cards") return <CartoesDoTurno cards={seg.cards} />;
   if (seg.tipo === "retry")
     return (
       <View style={{ flexDirection: "row", gap: 10, alignItems: "center", borderColor: seg.falhou ? "#7f1d1d" : c.line, borderWidth: 1,
@@ -550,6 +566,11 @@ const Segmento = memo(function Segmento({ seg, resultados, pendentes }: { seg: S
   if (seg.tipo === "decisao") return <Decisao call={seg.call} r={resultados.get(seg.call.id)} pendente={pendentes.has(seg.call.id)} />;
   return <Grupo pecas={seg.pecas} resultados={resultados} pendentes={pendentes} />;
 });
+
+function CartoesDoTurno({ cards }: { cards: CardMini[] }) {
+  const abre = useContext(AbreCard);
+  return <View style={{ gap: 8 }}>{cards.map((k) => <CardNoChat key={k.id} card={k} onAbre={abre} />)}</View>;
+}
 
 /** Mensagem do usuário. O lápis fica sempre à vista (no toque não há hover) e edita no lugar, como no desktop. */
 function MsgUsuario({ m }: { m: Msg }) {
