@@ -12,6 +12,7 @@ import Entrada, { type Ajustes, type Contexto } from "./Entrada";
 import { FaixaObjetivo, FaixaTarefas, type Tarefa } from "./Faixas";
 import { Abaixo, Cerebro, Cubo, Enviar, Escudo, Globo, Imagem, Lapis, Parar, Pasta as IconePasta, Relogio, Seta } from "./icones";
 import Markdown, { Codigo } from "./Markdown";
+import { AberturaSobreposta, type Voo } from "./Abertura";
 import { LogoMarca } from "./Logo";
 import Site, { type Servidor } from "./Site";
 import { CardNoChat, type CardMini } from "./Board";
@@ -335,12 +336,23 @@ export default function Chat({ conv, kind, workspace, onCriada, onTelaCheia, pas
     ]);
   }
 
+  // Abertura no primeiro envio (como o desktop): a posição da logo da saudação é medida quando ela aparece,
+  // porque no envio ela some da lista antes de uma medição assíncrona voltar.
+  const raiz = useRef<View>(null);
+  const logoSaudacao = useRef<View>(null);
+  const posLogo = useRef<Omit<Voo, "cy"> | null>(null);
+  const alturaLista = useRef(0);
+  const [voo, setVoo] = useState<Voo | null>(null);
+  const medeLogo = () => logoSaudacao.current?.measureInWindow((x, y, w, h) =>
+    raiz.current?.measureInWindow((rx, ry, rw) => { posLogo.current = { x: x - rx, y: y - ry, w, h, cx: rw / 2 }; }));
+
   async function envia(content: string) {
     try {
       if (runId) return void (await api.post(`/runs/${runId}/queue`, { content }));
       if (!ajustes.model) throw new Error("Escolha um modelo no botão de modelo, embaixo da caixa.");
       if (semPasta) throw new Error("Escolha uma pasta de trabalho antes de enviar (toque em \"Escolher pasta\").");
       noFim.current = true;
+      if (!msgs.length && !draft && posLogo.current) setVoo({ ...posLogo.current, cy: alturaLista.current / 2 });
       setMsgs((m) => [...m, { id: -Date.now(), role: "user", content, meta: anexos.length ? { attachments: anexos } : undefined }]);
       const id = idNovo.current ?? (await garanteConv());
       const vai = anexos;
@@ -488,7 +500,7 @@ export default function Chat({ conv, kind, workspace, onCriada, onTelaCheia, pas
       </View>
     )}
     {siteAberto && <Site nome={aba} caminho={ultimoCaminho(msgs, sites.find((x) => x.name === aba)!.url)} />}
-    <View style={{ flex: 1, paddingBottom: teclado, display: siteAberto ? "none" : "flex" }}>
+    <View ref={raiz} collapsable={false} style={{ flex: 1, paddingBottom: teclado, display: siteAberto ? "none" : "flex" }}>
       <ConvDoAnexo.Provider value={convId}>
       <AbreSlots.Provider value={abreSlots}>
       <Reenvio.Provider value={reenvio}>
@@ -508,7 +520,7 @@ export default function Chat({ conv, kind, workspace, onCriada, onTelaCheia, pas
         // No 1º desenho a lista ainda não mediu a própria altura e o scrollToEnd não faz nada: repete no
         // onLayout e no quadro seguinte.
         onContentSizeChange={() => noFim.current && requestAnimationFrame(() => lista.current?.scrollToEnd({ animated: false }))}
-        onLayout={() => noFim.current && requestAnimationFrame(() => lista.current?.scrollToEnd({ animated: false }))}
+        onLayout={(e) => { alturaLista.current = e.nativeEvent.layout.height; if (noFim.current) requestAnimationFrame(() => lista.current?.scrollToEnd({ animated: false })); }}
         onScrollBeginDrag={() => { arrastando.current = true; }}
         onMomentumScrollEnd={() => { arrastando.current = false; }}
         onScroll={({ nativeEvent: e }) => {
@@ -520,7 +532,7 @@ export default function Chat({ conv, kind, workspace, onCriada, onTelaCheia, pas
         contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 12, paddingBottom: 8, gap: 14, flexGrow: visiveis.length ? 0 : 1 }}
         ListEmptyComponent={draft || runId ? null : (
           <View style={{ flex: 1, alignItems: "center", justifyContent: "center", gap: 18 }}>
-            <LogoMarca size={56} color={c.muted} />
+            <View ref={logoSaudacao} collapsable={false} onLayout={medeLogo}><LogoMarca size={56} color={c.muted} /></View>
             <Text style={{ color: c.fg, fontSize: 24, fontWeight: "600" }}>Como posso ajudar?</Text>
             {!!pasta && convId == null && (
               <Pressable onPress={onPasta} style={{ flexDirection: "row", alignItems: "center", gap: 7, borderColor: semPasta ? "#78350f" : c.line,
@@ -558,6 +570,7 @@ export default function Chat({ conv, kind, workspace, onCriada, onTelaCheia, pas
           <Abaixo size={18} />
         </Pressable>
       )}
+      {voo && <AberturaSobreposta voo={voo} cor={c.muted} onFim={() => setVoo(null)} />}
       <Entrada acima={kind !== "chat" && convId != null ? (
                  <><FaixaObjetivo conv={convId} recarga={runId} /><FaixaTarefas tarefas={tarefas} /></>
                ) : null} kind={kind} conv={convId} teclado={teclado > 0} rodando={!!runId} perm={perm} onPerm={trocaPerm}

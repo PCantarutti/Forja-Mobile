@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Animated, Pressable, StyleSheet, Vibration, useWindowDimensions } from "react-native";
+import { AccessibilityInfo, Animated, Easing, Pressable, StyleSheet, Vibration, View, useWindowDimensions } from "react-native";
 import Svg, { Circle, Defs, G, Mask, Path, RadialGradient, Stop } from "react-native-svg";
 import { PECAS } from "./aberturaPecas";
 import { TEXTO } from "./Logo";
@@ -27,37 +27,23 @@ function angulo(t: number) {
 }
 const gira = (a: number, dy = 0) => `rotate(${a} ${PIV[0]} ${PIV[1]}) translate(0 ${dy})`;
 
-// Cena em coordenadas do logo (viewBox 228.5 137.5 802 718) com o FORJA embaixo: o texto (841×204 no
-// original) entra com 58% da largura do logo, 60 unidades abaixo dele.
-const TS = (802 * 0.58) / 841, TX = 629.5 - (211.5 + 420.5) * TS, TY = 855.5 + 60 - 882.5 * TS;
-// O alto vai até y=-240: erguido a -72° o martelo passa do topo do logo (antes a cabeça sumia, cortada).
-const VB = "150 -240 960 1380";
-
-export default function Abertura({ onFim }: { onFim: () => void }) {
-  const [t, setT] = useState(0);
-  const saida = useState(() => new Animated.Value(1))[0];
-  const fim = useRef(false);
-  const bateu = useRef(false);
-  const { width, height } = useWindowDimensions();
-  const acaba = () => {
-    if (fim.current) return;
-    fim.current = true;
-    Animated.timing(saida, { toValue: 0, duration: 280, useNativeDriver: true }).start(onFim);
+/** Dirige a cena pelo relógio (vel = quantas vezes mais rápida) e vibra uma vez no golpe: pancada forte
+ *  (70 ms) e um toque curto no repique do martelo. Devolve o cancelamento. */
+function relogio(dur: number, vel: number, onT: (t: number) => void, onFim: () => void) {
+  let raf = 0, bateu = false;
+  const t0 = Date.now();
+  const passo = () => {
+    const s = ((Date.now() - t0) / 1000) * vel;
+    if (s >= T0 && !bateu) { bateu = true; Vibration.vibrate([0, 70, 90, 25]); }
+    onT(Math.min(s, dur));
+    if (s < dur) raf = requestAnimationFrame(passo); else onFim();
   };
-  useEffect(() => {
-    let raf = 0;
-    const t0 = Date.now();
-    const passo = () => {
-      const s = (Date.now() - t0) / 1000;
-      // Vibra uma vez no golpe: pancada forte (70 ms) e um toque curto no repique do martelo.
-      if (s >= T0 && !bateu.current) { bateu.current = true; Vibration.vibrate([0, 70, 90, 25]); }
-      setT(Math.min(s, DUR));
-      if (s < DUR) raf = requestAnimationFrame(passo); else acaba();
-    };
-    raf = requestAnimationFrame(passo);
-    return () => cancelAnimationFrame(raf);
-  }, []);
+  raf = requestAnimationFrame(passo);
+  return () => cancelAnimationFrame(raf);
+}
 
+/** A marca no instante t, em coordenadas do logo. `id` separa máscara e gradiente de duas cenas na tela. */
+function Cena({ t, cor, id }: { t: number; cor: string; id: string }) {
   const a = easeOut(seg(t, 0, 0.35));
   const imp = t >= T0 ? seg(t, T0, 1.72) : 0, dec = Math.pow(1 - imp, 2);
   const vivo = imp > 0 && imp < 1;
@@ -69,6 +55,51 @@ export default function Abertura({ onFim }: { onFim: () => void }) {
   const f = seg(t, T0, T0 + 0.55);
   const kf = f <= 0 ? 0 : f < 0.35 ? easeOut(f / 0.35) * 1.6 : 1.6 - 0.6 * easeInOut((f - 0.35) / 0.65);
   const circ = easeInOut(seg(t, 1.55, 2.45));
+  return (
+    <>
+      <Defs>
+        <Mask id={`m${id}`} maskUnits="userSpaceOnUse" x="0" y="0" width="2000" height="2000">
+          <Circle cx={622} cy={514} r={357} fill="none" stroke="#fff" strokeWidth={80} transform="rotate(128 622 514)"
+                  strokeDasharray={[2243, 2243]} strokeDashoffset={2243 * (1 - circ)} />
+        </Mask>
+        <RadialGradient id={`b${id}`}><Stop offset="0" stopColor={cor} stopOpacity={0.9} /><Stop offset="1" stopColor={cor} stopOpacity={0} /></RadialGradient>
+      </Defs>
+      <G transform={`translate(${sx} ${sy})`}>
+        <G mask={`url(#m${id})`}><Path fill={cor} d={PECAS.arcos} /></G>
+        {t >= T0 && <Circle cx={IMP[0]} cy={IMP[1]} r={60 + 320 * easeOut(fo)} fill={`url(#b${id})`} opacity={0.55 * (1 - fo)} />}
+        {t >= T0 && <Circle cx={IMP[0]} cy={IMP[1]} r={30 + 460 * easeOut(oo)} fill="none" stroke={cor} strokeWidth={14 * (1 - oo) + 1} opacity={0.7 * (1 - oo)} />}
+        <Path fill={cor} d={PECAS.bigorna} opacity={a} transform={`translate(0 ${(1 - a) * 40 + afunda})`} />
+        {kf > 0 && PECAS.faiscas.map((d, i) => (
+          <Path key={i} fill={cor} d={d} opacity={clamp(f * 6)}
+                transform={`translate(${IMP[0]} ${IMP[1]}) scale(${kf}) translate(${-IMP[0]} ${-IMP[1]})`} />
+        ))}
+        {golpe && [1, 2, 3, 4].map((k) => (  // rastro do golpe: o martelo nos instantes de antes, cada vez mais apagado
+          <Path key={k} fill={cor} fillRule="evenodd" d={PECAS.martelo} opacity={0.28 / k} transform={gira(angulo(t - k * 0.012))} />
+        ))}
+        <Path fill={cor} fillRule="evenodd" d={PECAS.martelo} opacity={easeOut(seg(t, 0.05, 0.3))} transform={gira(ang, afunda)} />
+      </G>
+    </>
+  );
+}
+
+// Cena em coordenadas do logo (viewBox 228.5 137.5 802 718) com o FORJA embaixo: o texto (841×204 no
+// original) entra com 58% da largura do logo, 60 unidades abaixo dele.
+const TS = (802 * 0.58) / 841, TX = 629.5 - (211.5 + 420.5) * TS, TY = 855.5 + 60 - 882.5 * TS;
+// O alto vai até y=-240: erguido a -72° o martelo passa do topo do logo (antes a cabeça sumia, cortada).
+const VB = "150 -240 960 1380";
+
+export default function Abertura({ onFim }: { onFim: () => void }) {
+  const [t, setT] = useState(0);
+  const saida = useState(() => new Animated.Value(1))[0];
+  const fim = useRef(false);
+  const { width, height } = useWindowDimensions();
+  const acaba = () => {
+    if (fim.current) return;
+    fim.current = true;
+    Animated.timing(saida, { toValue: 0, duration: 280, useNativeDriver: true }).start(onFim);
+  };
+  useEffect(() => relogio(DUR, 1, setT, acaba), []);
+
   const tx = easeOut(seg(t, 2.25, 2.75));
   const lado = Math.min(width, height) * 0.86;
 
@@ -76,29 +107,47 @@ export default function Abertura({ onFim }: { onFim: () => void }) {
     <Animated.View style={[StyleSheet.absoluteFill, { backgroundColor: c.bg, alignItems: "center", justifyContent: "center", opacity: saida, zIndex: 100 }]}>
       <Pressable onPress={acaba} style={StyleSheet.absoluteFill} accessibilityLabel="Pular abertura" />
       <Svg width={lado} height={(lado * 1380) / 960} viewBox={VB} pointerEvents="none">
-        <Defs>
-          <Mask id="m" maskUnits="userSpaceOnUse" x="0" y="0" width="2000" height="2000">
-            <Circle cx={622} cy={514} r={357} fill="none" stroke="#fff" strokeWidth={80} transform="rotate(128 622 514)"
-                    strokeDasharray={[2243, 2243]} strokeDashoffset={2243 * (1 - circ)} />
-          </Mask>
-          <RadialGradient id="brilho"><Stop offset="0" stopColor="#fff" stopOpacity={0.9} /><Stop offset="1" stopColor="#fff" stopOpacity={0} /></RadialGradient>
-        </Defs>
-        <G transform={`translate(${sx} ${sy})`}>
-          <G mask="url(#m)"><Path fill="#ececec" d={PECAS.arcos} /></G>
-          {t >= T0 && <Circle cx={IMP[0]} cy={IMP[1]} r={60 + 320 * easeOut(fo)} fill="url(#brilho)" opacity={0.55 * (1 - fo)} />}
-          {t >= T0 && <Circle cx={IMP[0]} cy={IMP[1]} r={30 + 460 * easeOut(oo)} fill="none" stroke="#ececec" strokeWidth={14 * (1 - oo) + 1} opacity={0.7 * (1 - oo)} />}
-          <Path fill="#ececec" d={PECAS.bigorna} opacity={a} transform={`translate(0 ${(1 - a) * 40 + afunda})`} />
-          {kf > 0 && PECAS.faiscas.map((d, i) => (
-            <Path key={i} fill="#ececec" d={d} opacity={clamp(f * 6)}
-                  transform={`translate(${IMP[0]} ${IMP[1]}) scale(${kf}) translate(${-IMP[0]} ${-IMP[1]})`} />
-          ))}
-          {golpe && [1, 2, 3, 4].map((k) => (  // rastro do golpe: o martelo nos instantes de antes, cada vez mais apagado
-            <Path key={k} fill="#ececec" fillRule="evenodd" d={PECAS.martelo} opacity={0.28 / k} transform={gira(angulo(t - k * 0.012))} />
-          ))}
-          <Path fill="#ececec" fillRule="evenodd" d={PECAS.martelo} opacity={easeOut(seg(t, 0.05, 0.3))} transform={gira(ang, afunda)} />
-        </G>
+        <Cena t={t} cor="#ececec" id="boot" />
         <Path fill="#ececec" fillRule="evenodd" d={TEXTO} opacity={tx} transform={`translate(${TX} ${TY + (1 - tx) * 16}) scale(${TS})`} />
       </Svg>
+    </Animated.View>
+  );
+}
+
+// Abertura no primeiro envio da tela vazia (AberturaSobreposta do desktop): só a marca, 25% mais rápida; a
+// logo da saudação cresce e desce ao centro da conversa enquanto toca. Camada sem ponteiro: a conversa já
+// aparece por baixo e o envio não espera nada.
+const VEL = 1.25, DUR_MARCA = 2.6;
+const CRESCE = 2; // o desktop cresce 1,3× uma logo de 160 px; a do celular tem 56, então cresce mais
+/** Logo (x, y, w, h) e centro da área (cx, cy), nas coordenadas do pai da camada. */
+export type Voo = { x: number; y: number; w: number; h: number; cx: number; cy: number };
+
+export function AberturaSobreposta({ voo, cor, onFim }: { voo: Voo; cor: string; onFim: () => void }) {
+  const [t, setT] = useState(0);
+  const voa = useState(() => new Animated.Value(0))[0];
+  const saida = useState(() => new Animated.Value(1))[0];
+  useEffect(() => {
+    let cancela = () => {};
+    AccessibilityInfo.isReduceMotionEnabled().then((reduz) => {
+      if (reduz) return onFim(); // "reduzir movimento": sem abertura
+      Animated.timing(voa, { toValue: 1, duration: 416, easing: Easing.bezier(0.2, 0, 0, 1), useNativeDriver: true }).start();
+      cancela = relogio(DUR_MARCA, VEL, setT, () =>
+        Animated.timing(saida, { toValue: 0, duration: 240, easing: Easing.in(Easing.ease), useNativeDriver: true }).start(onFim));
+    });
+    return () => cancela();
+  }, []);
+  // Desenha no tamanho final (vetor nítido) e começa encolhido sobre a logo da saudação.
+  const L = voo.w * CRESCE, k = L / 802, H = 718 * k;
+  const lx = voo.x + voo.w / 2, ly = voo.y + voo.h / 2;
+  return (
+    <Animated.View pointerEvents="none" style={{ position: "absolute", left: lx - L / 2, top: ly - H / 2, width: L, height: H, opacity: saida,
+      transform: [{ translateX: voa.interpolate({ inputRange: [0, 1], outputRange: [0, voo.cx - lx] }) },
+                  { translateY: voa.interpolate({ inputRange: [0, 1], outputRange: [0, voo.cy - ly] }) },
+                  { scale: voa.interpolate({ inputRange: [0, 1], outputRange: [1 / CRESCE, 1] }) }] }}>
+      {/* o martelo erguido passa do topo do logo: a área do desenho começa em y=-240 */}
+      <View style={{ position: "absolute", left: (150 - 228.5) * k, top: (-240 - 137.5) * k }}>
+        <Svg width={960 * k} height={1100 * k} viewBox="150 -240 960 1100"><Cena t={t} cor={cor} id="voo" /></Svg>
+      </View>
     </Animated.View>
   );
 }
