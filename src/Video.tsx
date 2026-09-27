@@ -258,7 +258,7 @@ export default function Video({ conv, onCriada, onTurno, onBaixarModelos }:
 
   async function melhora() {
     const texto = prompt.trim();
-    if (!texto) return;
+    if (!texto) return toast("Escreva o prompt antes: o Melhorar reescreve o texto com mais detalhe (movimento, câmera, luz).");
     setMelhorando(true);
     try {
       const d = await modeloMelhorar("video");

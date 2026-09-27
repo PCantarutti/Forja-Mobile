@@ -301,7 +301,7 @@ export default function Imagens({ conv, onCriada, onTurno, onAbreChat }:
 
   async function melhora() {
     const texto = prompt.trim();
-    if (!texto) return;
+    if (!texto) return toast("Escreva o prompt antes: o Melhorar reescreve o texto com mais detalhe (luz, câmera, estilo).");
     setMelhorando(true);
     try {
       const d = await modeloMelhorar("imagem");
@@ -353,6 +353,11 @@ export default function Imagens({ conv, onCriada, onTurno, onAbreChat }:
   }
 
   /** Máscara ou anotação pronta (Editor de máscara): sobe o PNG como referência, como o usarPintura do desktop. */
+  /** Pintar numa referência anexada (como no desktop): o editor precisa do tamanho real dela. */
+  function pintaRef(path: string) {
+    Image.getSize(urlImagem(path), (w, h) => setPintar({ path, w, h }), () => setPintar({ path, w: 1024, h: 1024 }));
+  }
+
   async function usaPintura(texto: string) {
     const p = pintura;
     if (!p) return;
@@ -432,7 +437,7 @@ export default function Imagens({ conv, onCriada, onTurno, onAbreChat }:
         <View style={{ backgroundColor: c.surface, borderColor: c.line, borderWidth: 1, borderRadius: 24, padding: 8, gap: 6 }}>
           {refs.length > 0 && (
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6, paddingHorizontal: 4, paddingTop: 4 }}>
-              {refs.map((r) => <Miniatura key={r} uri={urlImagem(r)} onTira={() => setRefs((x) => x.filter((y) => y !== r))} />)}
+              {refs.map((r) => <Miniatura key={r} uri={urlImagem(r)} onTira={() => setRefs((x) => x.filter((y) => y !== r))} onPress={() => pintaRef(r)} />)}
             </ScrollView>
           )}
           <TextInput style={{ color: c.fg, fontSize: 15, maxHeight: 130, paddingHorizontal: 8, paddingTop: 6 }} value={prompt}
@@ -622,10 +627,19 @@ export function BotaoEnviar({ pode, onPress }: { pode: boolean; onPress: () => v
 }
 
 /** Miniatura de referência (52×52) com o X de 18 no canto. */
-export function Miniatura({ uri, onTira, lado = 52 }: { uri: string; onTira: () => void; lado?: number }) {
+export function Miniatura({ uri, onTira, onPress, lado = 52 }: { uri: string; onTira: () => void; onPress?: () => void; lado?: number }) {
   return (
     <View>
-      <Image source={{ uri }} style={{ width: lado, height: lado, borderRadius: 10, backgroundColor: c.raised }} />
+      <Pressable onPress={onPress} disabled={!onPress} accessibilityLabel="Pintar na imagem">
+        <Image source={{ uri }} style={{ width: lado, height: lado, borderRadius: 10, backgroundColor: c.raised }} />
+        {/* o pincel diz que tocar abre o editor de máscara */}
+        {onPress && (
+          <View style={{ position: "absolute", left: 3, bottom: 3, width: 18, height: 18, borderRadius: 9, backgroundColor: "#0009",
+                         alignItems: "center", justifyContent: "center" }}>
+            <Edit size={10} color="#fff" />
+          </View>
+        )}
+      </Pressable>
       <Pressable onPress={onTira} hitSlop={8} style={{ position: "absolute", right: 3, top: 3, width: 18, height: 18, borderRadius: 9,
                                                        backgroundColor: "#0009", alignItems: "center", justifyContent: "center" }}>
         <X size={11} color="#fff" />
