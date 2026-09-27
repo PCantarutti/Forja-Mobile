@@ -52,6 +52,11 @@ export async function compartilhaTexto(nome: string, texto: string, mime = "text
   await Sharing.shareAsync(arq.uri, { mimeType: mime, dialogTitle: "Salvar" });
 }
 
+// "Testar" de um Worker (Maestro › Modelo · VRAM): bateria da especialidade e o modelo atual já na lista (preset do desktop).
+const BATERIA_DE: Record<string, string> = { logica: "logica", frontend: "frontend", testes: "testes", docs: "docs" };
+let preset: { id: string; nome: string; spec?: { provider: string; model: string } } | null = null;
+export const testaWorker = (p: NonNullable<typeof preset>) => { preset = p; };
+
 /** Comparar modelos (CompararView do desktop): o mesmo prompt em 2 a 6 modelos, empilhados, com voto, teste do código e revisor. */
 export default function Comparar({ conv, onCriada, onTurno }: { conv: Conv | null; onCriada: (c: Conv) => void; onTurno: () => void }) {
   const [convId, setConvId] = useState<number | null>(conv?.id ?? null);
@@ -97,8 +102,16 @@ export default function Comparar({ conv, onCriada, onTurno }: { conv: Conv | nul
   }, []);
 
   useEffect(() => {
-    lerAjustes<Ajustes>("comparar", aj).then(setAj);
-    api.get<Record<string, Bateria>>("/comparar/baterias").then(setBaterias).catch(() => {});
+    // Os ajustes salvos primeiro: o preset do "Testar" vem por cima deles.
+    lerAjustes<Ajustes>("comparar", aj).then((salvo) => { setAj(salvo); return api.get<Record<string, Bateria>>("/comparar/baterias"); }).then((todas) => {
+      setBaterias(todas);
+      const p = preset;
+      preset = null;
+      if (!p) return;
+      const id = BATERIA_DE[p.id] ?? "geral";
+      if (todas[id]) { setBateria({ id, b: todas[id] }); setPrompt(todas[id].prompt); }
+      if (p.spec?.model) setAj((a) => ({ ...a, modelos: [{ provider: p.spec!.provider, model: p.spec!.model, nome: p.spec!.model }] }));
+    }).catch(() => {});
     if (convId == null) return;
     // Conversa existente: o último lote (mensagem com meta.itens); o stream devolve o estado e reconecta se ainda roda.
     api.get<{ messages: Msg[] }>(`/conversations/${convId}`).then(({ messages }) => {

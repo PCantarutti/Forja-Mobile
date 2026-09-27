@@ -2,7 +2,8 @@ import { type ReactNode, useEffect, useState } from "react";
 import { api } from "./api";
 import { Pressable, ScrollView, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Brain, Cube, Gauge, Paperclip, Parar, Shield } from "./icones";
+import Svg, { Circle } from "react-native-svg";
+import { Brain, Cube, Paperclip, Parar, Shield } from "./icones";
 import { BotaoEnviar } from "./Imagens";
 import Modelos, { type Escolha } from "./Modelos";
 import { Text, TextInput } from "./Texto";
@@ -105,6 +106,18 @@ function DetalheContexto({ ctx, podeCompactar, onCompactar }: { ctx: Contexto; p
   );
 }
 
+/** Anel de uso da janela de contexto, como o ContextRing do desktop (âmbar a 70%, vermelho a 90%). */
+function Anel({ f, cor }: { f: number; cor: string }) {
+  const r = 6, per = 2 * Math.PI * r;
+  return (
+    <Svg width={16} height={16} viewBox="0 0 16 16">
+      <Circle cx={8} cy={8} r={r} stroke={c.lineStrong} strokeWidth={2} fill="none" />
+      <Circle cx={8} cy={8} r={r} stroke={cor} strokeWidth={2} fill="none" strokeDasharray={`${per * f} ${per}`}
+              strokeLinecap="round" transform="rotate(-90 8 8)" />
+    </Svg>
+  );
+}
+
 /** Caixa de prompt do chat/agente/maestro: texto em cima; anexo, permissão, esforço, modelo e contexto embaixo. */
 export default function Entrada(p: {
   kind: string; teclado: boolean; rodando: boolean; perm: string; onPerm: (v: string) => void;
@@ -166,7 +179,7 @@ export default function Entrada(p: {
             )}
             <Chip rotulo={esforco.rotulo} onPress={() => setMenu("esforco")} icone={<Brain size={14} color={c.muted} />} />
             <Chip rotulo={p.ajustes.model || "Modelo"} onPress={() => setMenu("modelo")} icone={<Cube size={14} color={c.muted} />} />
-            {pct != null && <Chip rotulo={`${pct}%`} cor={corCtx} onPress={() => setMenu("contexto")} icone={<Gauge size={14} color={corCtx} />} />}
+            {pct != null && <Chip rotulo={`${pct}%`} cor={corCtx} onPress={() => setMenu("contexto")} icone={<Anel f={pct / 100} cor={pct >= 70 ? corCtx : c.accent} />} />}
           </ScrollView>
           {p.rodando && !t.trim() ? (
             <Pressable onPress={p.onPara} style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: c.accent, alignItems: "center", justifyContent: "center" }}>

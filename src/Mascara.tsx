@@ -44,9 +44,11 @@ function Editor({ alvo, modelo, onFecha, onPronta }: {
   const [gerando, setGerando] = useState(false);
   const exporta = useRef<View>(null);
 
-  const caixa = Math.min(358, width - 32);
+  // A imagem ocupa o máximo da área entre o topo e a barra de ferramentas, contida nos dois eixos (sem zoom ao abrir).
+  const [area, setArea] = useState<{ w: number; h: number } | null>(null);
   const r = alvo.w / alvo.h;
-  const dw = r >= 1 ? caixa : caixa * r, dh = r >= 1 ? caixa / r : caixa; // a imagem contida no quadrado
+  const cabeW = (area?.w ?? width) - 24, cabeH = (area?.h ?? width) - 36;
+  const dw = Math.max(1, Math.min(cabeW, cabeH * r)), dh = dw / r;
   const escala = alvo.w / dw; // px da original por ponto da tela, com zoom 1
 
   // Os refs guardam o que o PanResponder (criado uma vez) precisa ler atualizado.
@@ -163,7 +165,8 @@ function Editor({ alvo, modelo, onFecha, onPronta }: {
           </View>
           <Text style={{ color: c.faint, fontSize: 12, minHeight: 34, lineHeight: 17 }}>{DICA[modo]}</Text>
         </View>
-        <View style={{ flex: 1, alignItems: "center", justifyContent: "center", overflow: "hidden" }}>
+        <View style={{ flex: 1, alignItems: "center", justifyContent: "center", overflow: "hidden" }}
+              onLayout={(e) => setArea({ w: e.nativeEvent.layout.width, h: e.nativeEvent.layout.height })}>
           <View style={{ width: dw, height: dh, transform: [{ translateX: vista.x }, { translateY: vista.y }, { scale: vista.z }] }} {...resp.panHandlers}>
             <Image source={{ uri: urlImagem(alvo.path) }} style={{ width: dw, height: dh }} resizeMode="contain" />
             <View pointerEvents="none" style={{ position: "absolute", left: 0, top: 0, width: dw, height: dh, opacity: modo === "mascara" ? 0.55 : 1 }}>

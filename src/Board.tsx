@@ -282,7 +282,7 @@ export default function Board({ onAbreConversa, foco }: { onAbreConversa: (id: n
                               refreshControl={<RefreshControl refreshing={false} onRefresh={carrega} tintColor={c.muted} colors={[c.accent]} progressBackgroundColor={c.raised} />}>
                     {col.id === "novo" && itens.length >= 2 && (
                       <Pressable onPress={() => setTriagem(true)} style={{ height: 44, borderRadius: 12, borderWidth: 1, borderStyle: "dashed", borderColor: c.amber,
-                                                                         flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7 }}>
+                                                                         backgroundColor: "rgba(252,211,77,0.06)", flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7 }}>
                         <Trocar size={15} color={c.amber} />
                         <Text style={{ color: c.amber, fontSize: 13.5 }}>Triar {itens.length} cards deslizando</Text>
                       </Pressable>
@@ -379,8 +379,8 @@ function CardBoard({ i, onAbre, onMais, onAceitar, onRejeitar, onIniciar, onApro
         </View>
         {i.status === "novo" && (
           <>
-            <Botao altura={32} rotulo="Rejeitar" onPress={onRejeitar} />
-            <Botao primario altura={32} rotulo="Aceitar" onPress={onAceitar} />
+            <Botao primario altura={32} rotulo="Aceitar" icone={<Check size={13} color={c.accentFg} />} onPress={onAceitar} />
+            <Botao altura={32} rotulo="Rejeitar" icone={<X size={13} color={c.fg} />} onPress={onRejeitar} />
           </>
         )}
         {i.status === "backlog" && <Botao primario altura={32} rotulo="Iniciar" icone={<Play size={11} color={c.accentFg} />} onPress={onIniciar} />}
@@ -623,7 +623,10 @@ function Triagem({ aberta, cards, onFecha, onAceitar, onRejeitar, onFim }: {
   const sai = (lado: 1 | -1) => Animated.timing(dx, { toValue: lado * width * 1.2, duration: 180, useNativeDriver: true })
     .start(() => decide(lado > 0 ? "a" : "r"));
   const resp = useRef(PanResponder.create({
+    onStartShouldSetPanResponder: () => true,
     onMoveShouldSetPanResponder: (_, g) => Math.abs(g.dx) > 8 && Math.abs(g.dx) > Math.abs(g.dy),
+    onPanResponderTerminationRequest: () => false,
+    onPanResponderTerminate: () => { setDxv(0); Animated.timing(dx, { toValue: 0, duration: 180, useNativeDriver: true }).start(); },
     onPanResponderMove: (_, g) => { dx.setValue(g.dx); setDxv(g.dx); },
     onPanResponderRelease: (_, g) => {
       if (g.dx > 100) sai(1);
@@ -748,6 +751,12 @@ function Detalhe({ c0, pasta, nomeProjeto, acao, onFecha, onMover, onCriado, onA
     if (t.current) clearTimeout(t.current);
     if (c0 && Object.keys(pendente.current).length) api.patch(`/board/issues/${c0.id}`, pendente.current).catch(() => {}); // fechou antes dos 600 ms
   }, []);
+  // Mudou no PC com o detalhe aberto: os campos acompanham, menos os que estão sendo editados aqui.
+  useEffect(() => {
+    if (!c0) return;
+    setF((a) => ({ ...a, ...Object.fromEntries(Object.entries({ titulo: c0.titulo, descricao: c0.descricao, tipo: c0.tipo, area: c0.area,
+      severidade: c0.severidade, prompt: c0.prompt, verify_sugerido: c0.verify_sugerido }).filter(([k]) => !(k in pendente.current))) }));
+  }, [c0?.titulo, c0?.descricao, c0?.tipo, c0?.area, c0?.severidade, c0?.prompt, c0?.verify_sugerido]);
   const status = (st: string) => acao(() => api.patch(`/board/issues/${c0!.id}`, { status: st }));
   const col = TODAS.find((k) => k.id === c0?.status);
   const secao = (titulo: string, corpo: React.ReactNode) => (

@@ -11,7 +11,7 @@ import { api, base, carregaPar, escolheBase, salvaPar, viaLan } from "./src/api"
 import Chat, { type Conv } from "./src/Chat";
 import Abertura from "./src/Abertura";
 import CarregandoModelo from "./src/Carregando";
-import Comparar from "./src/Comparar";
+import Comparar, { testaWorker } from "./src/Comparar";
 import Video from "./src/Video";
 import { BaixarModelosRaiz, abreBaixarModelos } from "./src/BaixarModelos";
 import Configuracoes from "./src/Configuracoes";
@@ -106,6 +106,8 @@ export default function App() {
   );
 }
 
+let linkInicialLido = false;
+
 function Raiz({ onConfig }: { onConfig: () => void }) {
   const [pareado, setPareado] = useState<boolean | null>(null);
   const [pagina, setPagina] = useState<Pagina>("agent");
@@ -157,7 +159,8 @@ function Raiz({ onConfig }: { onConfig: () => void }) {
         } },
       ]);
     };
-    Linking.getInitialURL().then(trata);
+    // O link que abriu o app vale uma vez: a raiz remonta ao trocar o tema e não pode perguntar de novo.
+    if (!linkInicialLido) { linkInicialLido = true; Linking.getInitialURL().then(trata); }
     const sub = Linking.addEventListener("url", (e) => trata(e.url));
     return () => sub.remove();
   }, []);
@@ -208,7 +211,7 @@ function Raiz({ onConfig }: { onConfig: () => void }) {
   const workspace = pastaNova ?? padrao;
   const comPasta = pagina === "agent" || pagina === "maestro";
   const pastaAtual = conv ? nomePasta(conv.workspace_label || conv.workspace) : nomePasta(workspace);
-  const titulo = pagina === "sites" ? (site ?? "Sites") : conv?.title ?? PAGINAS.find((p) => p.id === pagina)!.rotulo;
+  const titulo = pagina === "sites" ? (site ?? "Sites") : pagina === "board" ? "Board" : conv?.title ?? PAGINAS.find((p) => p.id === pagina)!.rotulo;
   const cheia = telaCheia && width > height;
 
   return (
@@ -259,7 +262,7 @@ function Raiz({ onConfig }: { onConfig: () => void }) {
             <Pesquisa key={sessao} conv={conv} onCriada={criada} onTurno={turno}
                       onAbre={(id) => carregaConvs().then((l) => abre(l.find((x) => x.id === id) ?? { id, title: "Discussão" }, "chat"))} />
           ) : pagina === "maestro" ? (
-            <Maestro key={sessao} conv={conv} workspace={workspace} onTelaCheia={setTelaCheia} pasta={pastaAtual || "Escolher pasta"}
+            <Maestro key={sessao} conv={conv} workspace={workspace} onTestarWorker={(id, nome, spec) => { testaWorker({ id, nome, spec }); abre(null, "comparar"); }} onTelaCheia={setTelaCheia} pasta={pastaAtual || "Escolher pasta"}
                      onPasta={() => setSeletor(true)} onCriada={criada} onTurno={turno} />
           ) : (
             <Chat key={sessao} conv={conv} kind={pagina} workspace={workspace} onTelaCheia={setTelaCheia}

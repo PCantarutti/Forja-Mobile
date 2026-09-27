@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, BackHandler, Modal, Pressable, ScrollView, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { api } from "./api";
-import { ArrowLeft, Brain, Code, Cpu, Cube, Divide, Download, Globo, Seta, Shield, Sliders, Split, Trash, Wrench } from "./icones";
+import { ArrowLeft, Brain, Cpu, Cube, Download, Eye, Laptop, Pulso, Seta, Shield, Split, Terminal, Trash, Wrench } from "./icones";
 import Modelos from "./Modelos";
 import { useTeclado } from "./teclado";
 import { Text, TextInput } from "./Texto";
@@ -22,17 +22,17 @@ type Cfg = {
 };
 type Aba = "tema" | "provedores" | "subagentes" | "maestro" | "ferramentas" | "skills" | "permissoes" | "memoria" | "runtime";
 const ABAS: { grupo: string; itens: { id: Aba; titulo: string; dica: string; Icone: typeof Cube }[] }[] = [
-  { grupo: "APP", itens: [{ id: "tema", titulo: "Tema e fonte", dica: "Cores, destaque e fonte", Icone: Sliders }] },
+  { grupo: "APP", itens: [{ id: "tema", titulo: "Tema e fonte", dica: "Cores, destaque e fonte", Icone: Eye }] },
   { grupo: "MODELOS", itens: [
-    { id: "provedores", titulo: "Provedores", dica: "Onde os modelos rodam", Icone: Globo },
+    { id: "provedores", titulo: "Provedores", dica: "Onde os modelos rodam", Icone: Cpu },
     { id: "subagentes", titulo: "Subagentes", dica: "delegate_task: o agente escolhe o nível", Icone: Split }] },
   { grupo: "AGENTE", itens: [
-    { id: "maestro", titulo: "Maestro", dica: "Planeja, despacha e valida", Icone: Divide },
+    { id: "maestro", titulo: "Maestro", dica: "Planeja, despacha e valida", Icone: Pulso },
     { id: "ferramentas", titulo: "Ferramentas", dica: "O que está desligado não vai no prompt", Icone: Wrench },
-    { id: "skills", titulo: "Skills", dica: "Comandos / seus, do projeto e do Forja", Icone: Code },
+    { id: "skills", titulo: "Skills", dica: "Comandos / seus, do projeto e do Forja", Icone: Terminal },
     { id: "permissoes", titulo: "Permissões", dica: "O que roda sem pedir aprovação", Icone: Shield },
     { id: "memoria", titulo: "Memória", dica: "Pessoal e do projeto", Icone: Brain }] },
-  { grupo: "MÁQUINA", itens: [{ id: "runtime", titulo: "Runtime", dica: "llama.cpp e stable-diffusion.cpp", Icone: Cpu }] },
+  { grupo: "MÁQUINA", itens: [{ id: "runtime", titulo: "Runtime", dica: "llama.cpp e stable-diffusion.cpp", Icone: Laptop }] },
 ];
 const SLOTS = [
   { key: "rapido", title: "Rápido", hint: "Modelo menor e rápido para tarefas simples: buscar, listar, resumir, edições óbvias." },
@@ -80,8 +80,14 @@ export default function Configuracoes({ aberta, onFecha, onAparencia }: { aberta
   const [cfg, setCfg] = useState<Cfg | null>(null);
   const [salvo, setSalvo] = useState(false);
   const [erro, setErro] = useState("");
+  const [contas, setContas] = useState<{ tools?: number; skills?: number }>({});
   const t = useRef<ReturnType<typeof setTimeout> | null>(null);
-  useEffect(() => { if (aberta) api.get<Cfg>("/settings").then(setCfg).catch((e) => setErro(e.message)); else setAba(null); }, [aberta]);
+  useEffect(() => {
+    if (!aberta) return setAba(null);
+    api.get<Cfg>("/settings").then(setCfg).catch((e) => setErro(e.message));
+    api.get<unknown[]>("/tools").then((l) => setContas((x) => ({ ...x, tools: l.length }))).catch(() => {});
+    api.get<{ skills: unknown[] }>("/skills").then((r) => setContas((x) => ({ ...x, skills: r.skills.length }))).catch(() => {});
+  }, [aberta]);
   useEffect(() => {
     const sub = BackHandler.addEventListener("hardwareBackPress", () => (aberta && aba ? (setAba(null), true) : false));
     return () => sub.remove();
@@ -98,8 +104,9 @@ export default function Configuracoes({ aberta, onFecha, onAparencia }: { aberta
   };
   const atual = ABAS.flatMap((g) => g.itens).find((x) => x.id === aba);
   const valor: Partial<Record<Aba, string>> = cfg ? {
-    tema: TEMAS.find((x) => x.id === temaAtual)?.nome, provedores: String(cfg.providers.length),
-    ferramentas: cfg.disabled_tools.length ? `${cfg.disabled_tools.length} off` : undefined,
+    tema: temaAtual === "forja" ? "Forja atual" : TEMAS.find((x) => x.id === temaAtual)?.nome, provedores: String(cfg.providers.length),
+    ferramentas: contas.tools ? `${contas.tools - cfg.disabled_tools.length}/${contas.tools}` : undefined,
+    skills: contas.skills != null ? String(contas.skills) : undefined,
     permissoes: String(cfg.auto_approve_commands.length + cfg.auto_approve_tools.length),
   } : {};
   return (
@@ -111,7 +118,7 @@ export default function Configuracoes({ aberta, onFecha, onAparencia }: { aberta
           </Pressable>
           <View style={{ flex: 1 }}>
             <Text style={{ color: c.fg, fontSize: 16, fontWeight: "600" }}>{atual?.titulo ?? "Configurações"}</Text>
-            <Text style={{ color: c.faint, fontSize: 12 }} numberOfLines={1}>{atual?.dica ?? "O que vale no PC, mexido daqui"}</Text>
+            <Text style={{ color: c.faint, fontSize: 12 }} numberOfLines={1}>{atual?.dica ?? "Vale no PC pareado, na hora"}</Text>
           </View>
           {salvo && <Text style={{ color: c.ok, fontSize: 12, marginRight: 8 }}>✓ salvo no PC</Text>}
         </View>
@@ -124,7 +131,7 @@ export default function Configuracoes({ aberta, onFecha, onAparencia }: { aberta
                 {g.itens.map(({ id, titulo, dica, Icone }) => (
                   <Pressable key={id} onPress={() => setAba(id)}
                              style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", gap: 12, padding: 12, borderRadius: 12,
-                               backgroundColor: pressed ? c.raised : c.surface })}>
+                               borderWidth: 1, borderColor: c.line, backgroundColor: pressed ? c.raised : c.surface })}>
                     <Quadrado><Icone size={17} color={c.fg} /></Quadrado>
                     <View style={{ flex: 1 }}>
                       <Text style={{ color: c.fg, fontSize: 15 }}>{titulo}</Text>

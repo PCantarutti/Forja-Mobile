@@ -177,7 +177,7 @@ export function CartaoProporcao({ rotulo, w, h, px, on, onPress, cheio }:
         <View style={{ width: w * k, height: h * k, borderWidth: 1.5, borderRadius: 3, borderColor: cor }} />
       </View>
       <Text style={{ color: on ? c.accentText : c.fg2, fontSize: 13, fontWeight: "600" }}>{rotulo}</Text>
-      {!!px && <Text style={{ color: c.faint, fontFamily: mono, fontSize: 10.5 }} numberOfLines={1}>{px}</Text>}
+      {!!px && <Text style={{ color: c.faint, fontFamily: mono, fontSize: 10.5 }} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8}>{px}</Text>}
     </Pressable>
   );
 }
@@ -231,7 +231,7 @@ export function Opcao({ rotulo, dica, valor, onMuda, desabilitada, sub }:
         {!!dica && <Text style={[s.faint, { fontSize: 12.5, lineHeight: 18 }]}>{dica}</Text>}
       </View>
       <Switch value={valor} onValueChange={onMuda} disabled={desabilitada}
-              trackColor={{ true: c.accent, false: c.lineStrong }} thumbColor={valor ? c.accentFg : c.muted} />
+              trackColor={{ true: c.accent, false: c.lineStrong }} thumbColor={valor ? "#ffffff" : c.muted} />
     </Pressable>
   );
 }
@@ -329,7 +329,12 @@ export function ResumoEstimativa({ linha, tempo, vram, gpu, estouro }:
             </View>
             <Text style={{ color: passa ? c.warn : c.faint, fontFamily: mono, fontSize: 12 }}>{num(vram, 1)} de {num(gpu, 0)} GB</Text>
           </>
-        ) : <View style={{ flex: 1 }} />}
+        ) : (
+          <>
+            <View style={{ flex: 1 }} />
+            {vram != null && <Text style={{ color: c.faint, fontFamily: mono, fontSize: 12 }}>{num(vram, 1)} GB de VRAM</Text>}
+          </>
+        )}
       </View>
       {passa && <Text style={{ color: c.warn, fontSize: 12, lineHeight: 17 }}>{estouro}</Text>}
     </View>

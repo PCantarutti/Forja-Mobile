@@ -6,7 +6,7 @@ import { api, type Msg } from "./api";
 import Chat, { type Conv, Transcricao } from "./Chat";
 import Markdown from "./Markdown";
 import { pergunta } from "./Dialogo";
-import { Check, Cpu, Cubo, Divide, Lapis, Pulso, Refresh, Relogio, Seta, Undo, X } from "./icones";
+import { Balanca, Check, Cpu, Cubo, Divide, Lapis, Pulso, Refresh, Relogio, Seta, Undo, X } from "./icones";
 import ModelosFolha from "./Modelos";
 import { Campo, Deslizante, Folha, Pulsa, Seletor, toast } from "./ui";
 import { c, mono, s } from "./tema";
@@ -18,6 +18,7 @@ type Tarefa = { code: string; title: string; status: string; depends_on: string[
                 max_attempts: number; blocked_reason?: string; contract?: Record<string, any>; attempts: Tentativa[] };
 type Board = { features: { id: number; title: string; status: string; tasks: Tarefa[] }[]; counts: Record<string, number>;
                total: number; done: number; open: number; inicio?: string | null; ultima?: string | null };
+type Par = { provider: string; model: string };
 type Modelos = { running: boolean; alias: string | null; vram: number | null; vram_free: number | null; lifecycle: string; max_workers: number;
                  manageable: boolean; slots: Record<string, { provider: string; model: string }>; maestro_model?: { provider: string; model: string } | null };
 
@@ -45,7 +46,7 @@ const relogio = (inicio: string, fim: number) => {
 /** Maestro no celular: cabeçalho da execução, e o chat com a Maestro, a árvore de tarefas e o Worker em ação, em abas. */
 export default function Maestro(props: {
   conv: Conv | null; workspace?: string | null; onCriada: (c: Conv) => void; onTelaCheia: (b: boolean) => void;
-  pasta?: string; onPasta: () => void; onTurno: () => void;
+  pasta?: string; onPasta: () => void; onTurno: () => void; onTestarWorker?: (id: string, nome: string, spec?: Par) => void;
 }) {
   const [aba, setAba] = useState<"chat" | "tarefas" | "worker">("chat");
   const [convId, setConvId] = useState<number | null>(props.conv?.id ?? null);
@@ -106,7 +107,7 @@ export default function Maestro(props: {
                 tarefa={tarefas.find((t) => t.code === doWorker) ?? ativa ?? tarefas[tarefas.length - 1] ?? null} />
       )}
       {convId != null && <DetalheTarefa conv={convId} code={aberta} onFecha={() => setAberta(null)} onMudou={buscaBoard} />}
-      <FolhaVram aberta={vram} onFecha={() => setVram(false)} />
+      <FolhaVram aberta={vram} onFecha={() => setVram(false)} onTestar={(id, nome, spec) => props.onTestarWorker?.(id, nome, spec)} />
     </View>
   );
 }
@@ -157,44 +158,121 @@ function Cabecalho({ board, ativa, vivo, onPausar, onVram }: {
   );
 }
 
-/** Modelo · VRAM (PainelModelos do desktop): a VRAM, os modelos dos Workers, o ciclo de vida e a execução. */
-function FolhaVram({ aberta, onFecha }: { aberta: boolean; onFecha: () => void }) {
-  const [m, setM] = useState<Modelos | null>(null);
-  const [escolhe, setEscolhe] = useState<null | "maestro" | "capaz" | "rapido">(null);
-  useEffect(() => { if (aberta) api.get<Modelos>("/maestro/models").then(setM).catch(() => {}); }, [aberta]);
+/** Modelo · VRAM (PainelModelos do desktop): a VRAM, os modelos dos Workers e especialistas, o ciclo de vida e a execução. */
+const NOME_NIVEL: Record<string, string> = { rapido: "Rápido", capaz: "Capaz", nuvem: "Nuvem (reserva)" };
+// O "?" de cada linha: o que faz um modelo ser bom naquele papel e quando o Forja o usa (textos do desktop).
+const AJUDA_NIVEL: Record<string, string> = {
+  rapido: "Modelo pequeno e veloz. O Forja manda para ele só texto e manutenção (documentação, ajustes simples) quando a Maestro não escolhe; se falhar, a tarefa sobe para o capaz.",
+  capaz: "O generalista: resolve qualquer tarefa de código e é o padrão quando nenhum especialista se aplica. Bom capaz = segue o contrato à risca, roda os testes e não inventa API.",
+  nuvem: "Reserva paga: só entra quando os outros não estão disponíveis ou falharam. Vazio = nunca gasta API.",
+};
+const AJUDA_ESPECIALIDADE: Record<string, string> = {
+  logica: "Bom em lógica e back-end = acerta regra de negócio e casos de borda (valores zero, vazios, arredondamento), valida entradas e escreve código que passa nos testes. Recebe tarefas de funcionalidade, correção e refatoração.",
+  frontend: "Bom em frontend e aparência = escreve HTML/CSS/JS que funciona e fica bonito: layout responsivo, acessibilidade (contraste, foco), consistência com o guia visual. Recebe tarefas de tela (tipo ui) e as que só mexem em arquivos de interface.",
+  testes: "Bom em testes = escreve testes a partir do comportamento esperado (não do código), cobre os casos de borda e acha o bug que o teste expõe, sem inventar regra. Recebe tarefas do tipo test.",
+  docs: "Bom em documentação = lê o material, resume sem perder o essencial e diz 'não consta' em vez de inventar. Recebe tarefas do tipo docs (README, guias).",
+};
+type Espec = { id: string; nome: string; quando?: string; provider: string; model: string };
+
+function FolhaVram({ aberta, onFecha, onTestar }: { aberta: boolean; onFecha: () => void; onTestar: (id: string, nome: string, spec?: Par) => void }) {
+  const [m, setM] = useState<(Modelos & { workers_do_maestro?: boolean; especialidades?: Espec[] }) | null>(null);
+  const [escolhe, setEscolhe] = useState<string | null>(null); // "maestro" | nível | "esp:<id>"
+  const [ajuda, setAjuda] = useState<string | null>(null);
+  useEffect(() => { if (aberta) api.get<NonNullable<typeof m>>("/maestro/models").then(setM).catch(() => {}); }, [aberta]);
   const salva = (x: Record<string, unknown>) => api.put("/settings", x).then(() => toast("Salvo no PC.")).catch((e) => toast(e.message));
-  const usado = m?.vram != null && m.vram_free != null ? 1 - m.vram_free / m.vram : null;
+  const usado = m?.vram && m.vram_free != null ? 1 - m.vram_free / m.vram : null;
   const gb = (b: number) => `${(b / 2 ** 30).toFixed(1).replace(".", ",")} GB`;
-  const seletor = (id: "maestro" | "capaz" | "rapido", rotulo: string, v?: { provider: string; model: string } | null) => (
-    <Campo key={id} rotulo={rotulo}>
-      <Pressable onPress={() => setEscolhe(id)} style={{ height: 46, borderRadius: 12, borderWidth: 1, borderColor: c.line, backgroundColor: c.surface,
-                                                         flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 12 }}>
-        <Cubo size={15} color={c.muted} />
-        <Text style={{ color: v?.model ? c.fg : c.faint, fontFamily: mono, fontSize: 13, flex: 1 }} numberOfLines={1}>{v?.model || "(desligado)"}</Text>
-        <Seta size={15} color={c.faint} />
-      </Pressable>
-    </Campo>
+  const caixa = (v: Par | null | undefined, onPress: () => void) => (
+    <Pressable onPress={onPress} style={{ flex: 1, height: 42, borderRadius: 12, borderWidth: 1, borderColor: c.line, backgroundColor: c.surface,
+                                          flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 10 }}>
+      <Cubo size={14} color={c.muted} />
+      <Text style={{ color: v?.model ? c.fg : c.faint, fontFamily: mono, fontSize: 12.5, flex: 1 }} numberOfLines={1}>{v?.model || "escolher modelo"}</Text>
+      <Seta size={14} color={c.faint} />
+    </Pressable>
   );
+  const mudaSlot = (id: string, v: Par) => {
+    if (!m) return;
+    if (id === "maestro") { setM({ ...m, maestro_model: v }); return salva({ maestro_model: v }); }
+    if (id.startsWith("esp:")) {
+      const lista = (m.especialidades ?? []).map((e) => (e.id === id.slice(4) ? { ...e, ...v } : e));
+      setM({ ...m, especialidades: lista });
+      return salva({ worker_especialidades: lista });
+    }
+    const slots = { ...m.slots, [id]: v };
+    setM({ ...m, slots });
+    salva({ subagents: slots });
+  };
+  const linhas = m ? [
+    ...(["rapido", "capaz", "nuvem"] as const).map((k) => ({ id: k, nome: NOME_NIVEL[k], ajuda: AJUDA_NIVEL[k], spec: m.slots[k] })),
+    ...(m.especialidades ?? []).map((e) => ({ id: `esp:${e.id}`, nome: e.nome, spec: e.model ? { provider: e.provider, model: e.model } : undefined,
+      ajuda: (AJUDA_ESPECIALIDADE[e.id] ?? "Especialista criado por você.") + (e.quando ? ` Quando usar: ${e.quando}.` : "") })),
+  ] : [];
+  const semWorker = !!m && !Object.values(m.slots).some((x) => x?.model) && !m.workers_do_maestro;
   return (
     <Folha aberta={aberta} titulo="Modelo · VRAM" onFecha={onFecha}>
       {!m ? <ActivityIndicator color={c.muted} /> : (
         <>
-          {usado != null && (
-            <View style={{ gap: 6 }}>
-              <View style={{ flexDirection: "row" }}>
-                <Text style={[s.muted, { flex: 1 }]}>VRAM{m.running && m.alias ? ` · ${m.alias}` : ""}</Text>
-                <Text style={{ color: c.fg, fontFamily: mono, fontSize: 12.5 }}>{gb(m.vram! - m.vram_free!)} de {gb(m.vram!)}</Text>
-              </View>
-              <View style={{ height: 6, borderRadius: 3, backgroundColor: c.line, overflow: "hidden" }}>
-                <View style={{ height: 6, width: `${Math.round(usado * 100)}%`, backgroundColor: usado > 0.9 ? c.err : usado > 0.7 ? c.warn : c.accent }} />
-              </View>
+          <View style={{ gap: 6 }}>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+              <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: m.running ? c.ok : c.faint }} />
+              <Text style={{ color: c.fg, fontSize: 13.5, flex: 1 }} numberOfLines={1}>{m.running && m.alias ? m.alias : "nenhum modelo local carregado"}</Text>
             </View>
-          )}
-          <View style={{ gap: 12 }}>
+            {usado != null && (
+              <>
+                <View style={{ flexDirection: "row" }}>
+                  <Text style={[s.muted, { flex: 1 }]}>VRAM</Text>
+                  <Text style={{ color: c.fg, fontFamily: mono, fontSize: 12.5 }}>{gb(m.vram! - m.vram_free!)} de {gb(m.vram!)}</Text>
+                </View>
+                <View style={{ height: 6, borderRadius: 3, backgroundColor: c.line, overflow: "hidden" }}>
+                  <View style={{ height: 6, width: `${Math.round(usado * 100)}%`, backgroundColor: usado > 0.9 ? c.err : usado > 0.7 ? c.warn : c.accent }} />
+                </View>
+              </>
+            )}
+          </View>
+          <View style={{ gap: 10 }}>
             <Text style={s.secao2}>MODELO DOS WORKERS</Text>
-            {seletor("maestro", "Maestro", m.maestro_model)}
-            {seletor("capaz", "Worker capaz", m.slots.capaz)}
-            {seletor("rapido", "Worker rápido", m.slots.rapido)}
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+              <Text style={[s.muted, { width: 112 }]}>Maestro</Text>
+              {caixa(m.maestro_model, () => setEscolhe("maestro"))}
+            </View>
+            {/* Maestro e Workers no mesmo modelo: nada é descarregado para subir o modelo de um especialista. */}
+            <Pressable onPress={() => { const v = !m.workers_do_maestro; setM({ ...m, workers_do_maestro: v }); salva({ workers_do_maestro: v }); }}
+                       style={{ flexDirection: "row", gap: 10, borderRadius: 12, borderWidth: 1, borderColor: c.line, padding: 10 }}>
+              <View style={{ width: 20, height: 20, borderRadius: 5, borderWidth: 1.5, marginTop: 1, alignItems: "center", justifyContent: "center",
+                             borderColor: m.workers_do_maestro ? c.accent : c.lineStrong, backgroundColor: m.workers_do_maestro ? c.accent : "transparent" }}>
+                {m.workers_do_maestro && <Check size={14} color={c.accentFg} />}
+              </View>
+              <View style={{ flex: 1, gap: 2 }}>
+                <Text style={{ color: c.fg, fontSize: 14 }}>Workers usam o modelo da Maestro</Text>
+                <Text style={[s.faint, { fontSize: 12, lineHeight: 17 }]}>
+                  Ninguém troca de modelo: a Maestro não é descarregada para subir o modelo de um Worker. Com IA local, os Workers rodam em paralelo no mesmo servidor. Os modelos abaixo ficam guardados, sem uso.
+                </Text>
+              </View>
+            </Pressable>
+            <View style={{ gap: 8, opacity: m.workers_do_maestro ? 0.4 : 1 }} pointerEvents={m.workers_do_maestro ? "none" : "auto"}>
+              {linhas.map((w) => (
+                <View key={w.id} style={{ gap: 6 }}>
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                    <Pressable onPress={() => setAjuda(ajuda === w.id ? null : w.id)} style={{ width: 112, flexDirection: "row", alignItems: "center", gap: 4 }}>
+                      <Text style={[s.muted, { flexShrink: 1 }]} numberOfLines={2}>{w.nome}</Text>
+                      <View style={{ width: 15, height: 15, borderRadius: 8, borderWidth: 1, borderColor: c.line, alignItems: "center", justifyContent: "center" }}>
+                        <Text style={{ color: c.faint, fontSize: 9 }}>?</Text>
+                      </View>
+                    </Pressable>
+                    {caixa(w.spec, () => setEscolhe(w.id))}
+                    {!!w.spec?.model && (
+                      <Pressable hitSlop={8} onPress={() => mudaSlot(w.id, { provider: "", model: "" })}><X size={13} color={c.faint} /></Pressable>
+                    )}
+                    <Pressable hitSlop={6} onPress={() => { onFecha(); onTestar(w.id.replace("esp:", ""), w.nome, w.spec); }}
+                               style={{ flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 4 }}>
+                      <Balanca size={13} color={c.faint} /><Text style={{ color: c.faint, fontSize: 12 }}>Testar</Text>
+                    </Pressable>
+                  </View>
+                  {ajuda === w.id && <Text style={[s.faint, { fontSize: 12, lineHeight: 17 }]}>{w.ajuda}</Text>}
+                </View>
+              ))}
+            </View>
+            {semWorker && <Text style={{ color: c.warn, fontSize: 12.5 }}>Nenhum Worker configurado — sem isso a Maestro não tem a quem delegar.</Text>}
           </View>
           <Campo rotulo="Ao terminar uma tarefa" dica={m.lifecycle === "persistent" ? "Recarregar custa minutos: vale manter quando as tarefas usam o mesmo modelo."
             : "Libera a VRAM a cada tarefa. É o modo para máquina apertada ou modelos diferentes por tarefa."}>
@@ -206,12 +284,10 @@ function FolhaVram({ aberta, onFecha }: { aberta: boolean; onFecha: () => void }
             <Seletor cheio valor={m.max_workers <= 1 ? "1" : "2"} opcoes={[{ id: "1", rotulo: "Sequencial" }, { id: "2", rotulo: "Paralelo" }]}
                      onMuda={(v) => { const n = v === "1" ? 1 : Math.max(2, m.max_workers); setM({ ...m, max_workers: n }); salva({ max_workers: n }); }} />
           </Campo>
-          <ModelosFolha aberto={escolhe != null} onFecha={() => setEscolhe(null)} onEscolhe={([e]) => {
-            const v = { provider: e.provider ?? "local", model: e.model ?? e.nome };
-            const alvo = escolhe;
+          <ModelosFolha aberto={escolhe != null} soProvedor={escolhe === "nuvem"} onFecha={() => setEscolhe(null)} onEscolhe={([e]) => {
+            const alvo = escolhe!;
             setEscolhe(null);
-            if (alvo === "maestro") { setM({ ...m, maestro_model: v }); salva({ maestro_model: v }); }
-            else if (alvo) { const slots = { ...m.slots, [alvo]: v }; setM({ ...m, slots }); salva({ subagents: slots }); }
+            mudaSlot(alvo, { provider: e.provider ?? "local", model: e.model ?? e.nome });
           }} />
         </>
       )}

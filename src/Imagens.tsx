@@ -684,13 +684,13 @@ function FolhaPintura({ p, count, onGerar }: { p: { uri: string; modo: "mascara"
       <View style={{ flexDirection: "row", gap: 12, alignItems: "center" }}>
         <Image source={{ uri: p.uri }} style={{ width: 64, height: 64, borderRadius: 10, backgroundColor: "#000" }} />
         <Text style={[s.muted, { flex: 1, lineHeight: 19 }]}>
-          {p.modo === "mascara" ? `Máscara com ${p.tracos} traços. A original vai inteira como primeira referência.`
-                                : `Anotação com ${p.tracos} traços. Ela entra no lugar da original.`}
+          {p.modo === "mascara" ? `Máscara com ${p.tracos} traço${p.tracos === 1 ? "" : "s"}. A original vai inteira como primeira referência.`
+                                : `Anotação com ${p.tracos} traço${p.tracos === 1 ? "" : "s"}. Ela entra no lugar da original.`}
         </Text>
       </View>
       <Area valor={t} onMuda={setT} linhas={3}
             placeholder={p.modo === "mascara" ? "ex.: replace with a steel anvil, same lighting" : "ex.: remove the watch in the red circle"} />
-      <Botao primario altura={48} rotulo={`Gerar ${count} versões`} icone={<ArrowUp size={16} color={c.accentFg} />} desabilitado={!t.trim()}
+      <Botao primario altura={48} rotulo={count === 1 ? "Gerar 1 versão" : `Gerar ${count} versões`} icone={<ArrowUp size={16} color={c.accentFg} />} desabilitado={!t.trim()}
              onPress={() => onGerar(t.trim())} />
     </>
   );
@@ -772,7 +772,7 @@ function LoteView({ lote, onVer, onAcao, onReaproveita, onContinua, onBaixar }: 
         {(img.status !== "pronta" || rodando) && !!ROTULO[img.status] && (
           <View style={{ position: "absolute", left: 6, bottom: 6, right: 6, backgroundColor: "#000b", borderRadius: 8, padding: 6 }}>
             <Text style={{ color: img.status === "erro" ? c.err : img.status === "mantida" ? c.ok : c.fg, fontSize: 12 }} numberOfLines={2}>
-              {img.fase ?? ROTULO[img.status]}{img.status === "gerando" && img.progress != null ? ` ${Math.round(img.progress * 100)}%` : ""}
+              {(img.status === "gerando" && img.fase) || ROTULO[img.status]}{img.status === "gerando" && img.progress != null ? ` ${Math.round(img.progress * 100)}%` : ""}
               {img.status === "gerando" && img.s_passo ? ` · ${velocidade(img.s_passo)}` : ""}
               {img.status === "gerando" && img.restante ? ` · ${restante(img.restante)}` : ""}{img.error ? ` · ${img.error}` : ""}
             </Text>

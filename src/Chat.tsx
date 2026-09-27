@@ -727,7 +727,7 @@ function LinhaStats({ s: st }: { s: Stats }) {
       <Text style={[s.muted, { fontSize: 12, fontFamily: mono }]}>{st.estimated ? "~" : ""}{(st.tokens ?? 0).toLocaleString("pt-BR")} tokens</Text>
       <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
         <Relogio size={13} color={c.muted} />
-        <Text style={[s.muted, { fontSize: 12, fontFamily: mono }]}>{seg < 60 ? `${seg.toFixed(1)}s` : `${Math.floor(seg / 60)}m${Math.round(seg % 60)}s`}</Text>
+        <Text style={[s.muted, { fontSize: 12, fontFamily: mono }]}>{seg < 60 ? `${seg.toFixed(1).replace(".", ",")}s` : `${Math.floor(seg / 60)}m${Math.round(seg % 60)}s`}</Text>
       </View>
       {st.tps != null && <Text style={[s.muted, { fontSize: 12, fontFamily: mono }]}>{st.tps.toFixed(2).replace(".", ",")} t/s</Text>}
     </View>
