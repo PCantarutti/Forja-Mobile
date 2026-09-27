@@ -33,6 +33,14 @@ export function formaDe(formas: string[], w: number, h: number) {
   return formas.find((f) => { const [a, b] = par(f); return Math.abs(r - a / b) / (a / b) <= 0.03; });
 }
 
+/** Nome curto do formato: a proporção fixa mais perto (na orientação atual) ou a razão a:b. */
+export function nomeFormato(formas: string[], w: number, h: number) {
+  const f = formaDe(formas, w, h);
+  if (!f) return razao(w, h).join(":");
+  const [a, b] = par(f);
+  return h > w ? `${b}:${a}` : f;
+}
+
 /** Proporções só em paisagem (a de retrato sai do botão de girar), Livre com a:b, e o tamanho (lado menor). */
 export function Formato({ formas, quals, tamanhoPara, w, h, mult, onMuda, dicaQual }: {
   formas: string[]; quals: Qualidade[]; tamanhoPara: (forma: string, q: string) => [number, number];

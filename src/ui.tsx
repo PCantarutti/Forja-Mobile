@@ -106,7 +106,7 @@ export function Seletor<T extends string>({ opcoes, valor, onMuda, cheio, rolave
       <Pressable key={o.id} onPress={() => onMuda(o.id)}
                  style={{ height: altura ?? (rolavel ? 34 : 38), borderRadius: 999, paddingHorizontal: altura && altura < 32 ? 10 : 14,
                           alignItems: "center", justifyContent: "center",
-                          backgroundColor: on ? c.accent : c.raised, opacity: o.off ? 0.35 : 1, flex: cheio ? 1 : undefined }}>
+                          backgroundColor: on ? c.accent : c.raised, opacity: o.off ? (on ? 0.6 : 0.35) : 1, flex: cheio ? 1 : undefined }}>
         <Text style={{ color: on ? c.accentFg : c.muted, fontSize: rolavel || emMono ? 12.5 : 13, textAlign: "center",
                        fontFamily: rolavel || emMono ? mono : undefined, fontWeight: on ? "600" : "400" }} numberOfLines={1}>{o.rotulo}</Text>
       </Pressable>

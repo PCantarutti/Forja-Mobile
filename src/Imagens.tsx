@@ -11,7 +11,7 @@ import type { Conv } from "./Chat";
 import { pergunta } from "./Dialogo";
 import { ArrowLeft, ArrowUp, Check, Clock, Cube, Download, Edit, Expandir, ExternalLink, Folder, Gauge, Paperclip, Refresh, Repetir, Sliders,
          Seta, Square, Voltar, X } from "./icones";
-import { ArquivosPC, CampoMelhorar, encaixa, Formato, modeloMelhorar, razao } from "./Formato";
+import { ArquivosPC, CampoMelhorar, encaixa, Formato, modeloMelhorar, nomeFormato } from "./Formato";
 import { useGestos } from "./gestos";
 import Mascara from "./Mascara";
 import Liquido from "./Liquido";
@@ -376,7 +376,7 @@ export default function Imagens({ conv, onCriada, onTurno, onAbreChat }:
   const est = aj ? estimaImagem(aj.opts, sPasso, gbModelo) : null;
   const passa = !!est && gpu != null && est.vram > gpu;
   const predef = aj ? predefDe(aj.opts) : undefined;
-  const nomeTam = (o: Opts) => razao(o.width, o.height).join(":");
+  const nomeTam = (o: Opts) => nomeFormato(FORMAS, o.width, o.height);
   // Tamanho acima de 1,5× o nativo dos modelos marcados fica apagado (ainda clicável), como no desktop.
   const nativo = Math.max(0, ...modelos.map((m) => Math.min(m.params?.width ?? 0, m.params?.height ?? 0)));
   const resumo = aj ? `${predef?.nome ?? "Personalizado"} · ${nomeTam(aj.opts)} · ×${aj.count}` : "Ajustes";

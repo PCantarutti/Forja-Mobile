@@ -9,7 +9,7 @@ import type { Conv } from "./Chat";
 import { pergunta } from "./Dialogo";
 import { Check, Clock, Cube, Download, Edit, Expandir, ExternalLink, Folder, Imagem, Play, Plus, Raio, Repetir, Seta, Sliders, Square, Trash,
          Trocar, Voltar, X } from "./icones";
-import { ArquivosPC, CampoMelhorar, encaixa, Formato, modeloMelhorar, razao } from "./Formato";
+import { ArquivosPC, CampoMelhorar, encaixa, Formato, modeloMelhorar, nomeFormato } from "./Formato";
 import { AcaoGrade, AMOSTRADORES, BotaoEnviar, CampoSemente, type Destino, LinhaEstimativa, Miniatura, salva } from "./Imagens";
 import Liquido from "./Liquido";
 import { restante, velocidade } from "./progresso";
@@ -416,7 +416,7 @@ export default function Video({ conv, onCriada, onTurno, onBaixarModelos }:
               <Chip rotulo={nomeModelo} icone={<Cube size={14} color={modelo?.falta?.length ? c.warn : c.muted} />}
                     cor={modelo?.falta?.length ? c.warn : undefined} onPress={() => setFolha("modelo")} />
               {!!o && (
-                <Chip rotulo={`${razao(o.width, o.height).join(":")}${qAtual ? ` · ${qAtual}` : ""}`} icone={<Sliders size={14} color={c.muted} />}
+                <Chip rotulo={`${nomeFormato(FORMAS, o.width, o.height)}${qAtual ? ` · ${qAtual}` : ""}`} icone={<Sliders size={14} color={c.muted} />}
                       onPress={() => setFolha("ajustes")} />
               )}
               {!!o && <Chip rotulo={`${num(seg)} s${n > 1 ? ` · ×${n}` : ""}`} icone={<Clock size={14} color={c.muted} />} onPress={() => setFolha("ajustes")} />}
