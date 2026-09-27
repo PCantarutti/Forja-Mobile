@@ -1,4 +1,5 @@
-import { ScrollView, Text, View } from "react-native";
+import { ScrollView, View } from "react-native";
+import { Text } from "./Texto";
 import { abreLink } from "./Link";
 import { c, mono } from "./tema";
 

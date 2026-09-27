@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "./api";
-import { Pressable, ScrollView, Text, TextInput, View } from "react-native";
+import { Pressable, ScrollView, View } from "react-native";
+import { Text, TextInput } from "./Texto";
 import Svg, { Circle } from "react-native-svg";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Abaixo, Cubo, Enviar, Escudo, Parar } from "./icones";

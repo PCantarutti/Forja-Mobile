@@ -3,30 +3,35 @@ import { Directory, File, Paths } from "expo-file-system";
 import { Asset, requestPermissionsAsync } from "expo-media-library";
 import * as Sharing from "expo-sharing";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, FlatList, Image, Modal, Pressable, ScrollView, Text, TextInput, View, useWindowDimensions } from "react-native";
+import { ActivityIndicator, FlatList, Image, Modal, Pressable, ScrollView, View, useWindowDimensions } from "react-native";
+import { Text, TextInput } from "./Texto";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { api, enviaArquivo, lerAjustes, type Msg, salvaAjustes, urlImagem } from "./api";
 import type { Conv } from "./Chat";
 import { pergunta } from "./Dialogo";
-import { Cubo, Enviar, Parar } from "./icones";
+import { ArrowLeft, ArrowUp, Check, Clock, Cube, Download, Edit, Expandir, ExternalLink, Folder, Gauge, Paperclip, Refresh, Repetir, Sliders,
+         Seta, Square, Trocar, Voltar, X } from "./icones";
+import Mascara from "./Mascara";
 import Liquido from "./Liquido";
 import { restante, velocidade } from "./progresso";
 import { GaleriaSite, TelaSlot, versoesPorSlot } from "./Slots";
 import { useTeclado } from "./teclado";
 import { c, mono, s } from "./tema";
-import { Campo, Chip, Contador, Folha, Lista, Seletor } from "./ui";
+import { Area, Botao, BotaoIcone, Caixa, Campo, CartaoOpcao, CartaoProporcao, Chip, Contador, Deslizador, Folha, LinhaAjuste, Lista, Radio,
+         Recolhivel, ResumoEstimativa, Selo, Seletor, num, toast } from "./ui";
 
 // LoteImagem do backend (lotes.py / types.ts do desktop).
 type Img = { path: string; seed: number; model_name?: string; status: string; progress?: number; fase?: string; preview?: string;
-             com_previa?: boolean; restante?: number; s_passo?: number; error?: string;
+             com_previa?: boolean; restante?: number; s_passo?: number; error?: string; w?: number; h?: number; width?: number; height?: number;
              nome?: string; destino?: string; slot?: string; mid?: number; prompt?: string }; // slot do site (skill gerar-imagens)
 type Slot = { nome: string; caminho: string; rel: string; prompt: string; prompt_base: string; estilo: string; largura: number | null; altura: number | null };
 // GET /imagens/{conv}/origem: a conversa que a IA abriu para as imagens de um site (desktop ImagensView Origem).
 type Origem = { message_id: number; workspace: string; projeto: string; chat: { id: number; title: string; kind: string } | null;
                 slots: Slot[]; pendentes: Slot[]; fora_do_codigo: string[]; estilo: string; web: boolean };
 type Lote = { user?: Msg; msg: Msg; imgs: Img[] };
-type ModeloImg = { path: string; name: string; params?: Record<string, any> };
-type LocalImg = { image: Record<string, any>; image_models: ModeloImg[]; runtimes: any };
+type ModeloImg = { path: string; name: string; size?: number; req?: { nome?: string } | null; params?: Record<string, any> };
+type LocalImg = { image: Record<string, any>; image_models: ModeloImg[]; runtimes: any; hardware?: { vram?: number } };
+const GB = 2 ** 30;
 type Opts = { steps: number; cfg: number; width: number; height: number; sampler: string; negative: string;
   hires?: boolean; hires_scale?: number; hires_denoise?: number }; // alta resolução (hires fix do sd-cli), como no PC
 type Ajustes = { models: string[]; count: number; seed: number; seed_mode: string; opts: Opts };
@@ -39,8 +44,41 @@ type Ampliadores = { no_disco: { path: string; name: string; tipo?: "esrgan" | "
 // Listas do desktop (ImagensView / LocalPanel).
 const AMOSTRADORES = ["euler_a", "euler", "heun", "dpm2", "dpm++2s_a", "dpm++2m", "dpm++2mv2", "ipndm", "lcm", "ddim_trailing", "tcd",
   "res_multistep", "er_sde", "dpm++2m_sde", "lms"];
-const PROPORCOES = [{ id: "1:1", w: 512, h: 512 }, { id: "3:2", w: 768, h: 512 }, { id: "2:3", w: 512, h: 768 }, { id: "16:9", w: 896, h: 512 }];
+const PROPORCOES = [{ id: "1:1", w: 1024, h: 1024 }, { id: "3:2", w: 1216, h: 832 }, { id: "2:3", w: 832, h: 1216 },
+  { id: "16:9", w: 1344, h: 768 }, { id: "9:16", w: 768, h: 1344 }];
 const SEMENTES = [{ id: "incremental", rotulo: "Incremental" }, { id: "aleatoria", rotulo: "Aleatória" }, { id: "fixa", rotulo: "Fixa" }];
+const PREDEFS = [{ id: "rapido", nome: "Rápido", steps: 12, cfg: 5, hires: 0, sub: "12 passos" },
+  { id: "equilibrado", nome: "Equilibrado", steps: 20, cfg: 7, hires: 0, sub: "20 passos" },
+  { id: "qualidade", nome: "Qualidade", steps: 30, cfg: 7, hires: 1.5, sub: "30 passos · hires" }];
+const hiresDe = (o: Opts) => (o.hires ? o.hires_scale ?? 1.5 : 0);
+const predefDe = (o: Opts) => PREDEFS.find((p) => p.steps === o.steps && p.cfg === o.cfg && p.hires === hiresDe(o));
+
+// Formato.tsx do desktop: mantém a área w*h e recalcula para a razão a:b, em múltiplos de 64.
+const snap64 = (n: number) => Math.max(64, Math.round(n / 64) * 64);
+export function tamanhoLivre(w: number, h: number, a: number, b: number) {
+  const area = w * h;
+  return { w: snap64(Math.sqrt((area * a) / b)), h: snap64(Math.sqrt((area * b) / a)) };
+}
+/** Razão simplificada de w×h (896×1216 → 3:4 … aproximada para inteiros pequenos). */
+function razao(w: number, h: number): [number, number] {
+  let melhor: [number, number] = [1, 1], erro = Infinity;
+  for (let b = 1; b <= 16; b++) {
+    const a = Math.max(1, Math.round((w / h) * b));
+    const e = Math.abs(a / b - w / h);
+    if (e < erro - 1e-9) { erro = e; melhor = [a, b]; }
+  }
+  return melhor;
+}
+
+// ponytail: fórmula provisória do handoff; trocar por tempos_imagem medidos quando o backend expuser (como tempos_video).
+const S_PASSO_PADRAO = 0.55; // s por passo a 1 MP, sem medição do modelo nesta conversa
+function estimaImagem(o: Opts, sPasso: number | null, gbModelo: number) {
+  const px = (o.width * o.height) / 1048576;
+  const hs = hiresDe(o);
+  const porImagem = 2 + (sPasso ?? S_PASSO_PADRAO) * o.steps * px * (hs ? 1 + hs * hs * (o.hires_denoise ?? 0.45) * 1.4 : 1);
+  return { s: porImagem, vram: gbModelo + 0.9 * px * (hs ? hs * hs : 1) };
+}
+export const tempoFmt = (sg: number) => (sg < 90 ? `${Math.round(sg)} s` : `${Math.round(sg / 60)} min`);
 const MAX_REFS = 10;
 const REFAZIVEIS = ["interrompida", "pendente", "cancelada", "erro"];
 const ROTULO: Record<string, string> = { pendente: "na fila", gerando: "gerando", erro: "erro", cancelada: "cancelada",
@@ -105,6 +143,8 @@ export default function Imagens({ conv, onCriada, onTurno, onAbreChat }:
   const [estilo, setEstilo] = useState<string | null>(null); // folha "Outro estilo" aberta com o texto
   const [slotAberto, setSlotAberto] = useState<string | null>(null); // tela de versões de um slot do site
   const [ampliar, setAmpliar] = useState<Ampliar | null>(null);
+  const [pintar, setPintar] = useState<{ path: string; w: number; h: number } | null>(null); // editor de máscara aberto
+  const [pintura, setPintura] = useState<{ uri: string; modo: "mascara" | "anotacao"; tracos: number; original: string } | null>(null);
   const lista = useRef<FlatList>(null);
   const inset = useSafeAreaInsets();
   const teclado = useTeclado();
@@ -223,8 +263,9 @@ export default function Imagens({ conv, onCriada, onTurno, onAbreChat }:
     }, "ampliar");
   }
 
-  async function gera() {
-    const texto = prompt.trim();
+  async function gera(textoPronto?: string, refsProntas?: string[]) {
+    const texto = (textoPronto ?? prompt).trim();
+    const refsUsadas = refsProntas ?? refs;
     if (!texto || !aj?.models.length || !local) return;
     setErro("");
     const opts = Object.fromEntries(Object.entries({ ...local.image, ...aj.opts }).filter(([k]) => !DO_MODELO.includes(k)));
@@ -236,7 +277,7 @@ export default function Imagens({ conv, onCriada, onTurno, onAbreChat }:
       // Como o desktop: o que está na tela também vira o padrão da ferramenta image_generate do agente.
       await api.put("/local/image/defaults", { ...local.image, ...aj.opts, model: aj.models[0] });
       await api.post(`/imagens/${id}/gerar`, { prompt: texto, opts, models: aj.models, count: aj.count, seed: aj.seed,
-        seed_mode: aj.seed_mode, confirm, refs });
+        seed_mode: aj.seed_mode, confirm, refs: refsUsadas });
       setPrompt("");
       carrega();
     }, "gerar");
@@ -315,12 +356,39 @@ export default function Imagens({ conv, onCriada, onTurno, onAbreChat }:
     setSalvar(null);
     try {
       const aviso = await salva(paths, destino);
-      if (aviso) pergunta("Imagem salva", aviso, [{ texto: "Ok" }]);
+      if (aviso) toast(aviso);
     } catch (e: any) {
       if (!/cancel/i.test(String(e?.message))) setErro(e.message); // cancelar o seletor de pasta não é erro
     }
   }
-  const nomes = aj?.models.map((p) => local?.image_models.find((m) => m.path === p)?.name ?? "?") ?? [];
+
+  /** Máscara ou anotação pronta (Editor de máscara): sobe o PNG como referência, como o usarPintura do desktop. */
+  async function usaPintura(texto: string) {
+    const p = pintura;
+    if (!p) return;
+    setPintura(null);
+    try {
+      const { path } = await enviaArquivo<{ path: string }>("/imagens/referencia", { uri: p.uri, name: `${p.modo}.png`, mimeType: "image/png" });
+      const novas = p.modo === "mascara" ? [p.original, path] : [path];
+      setRefs(novas);
+      setPrompt(texto);
+      gera(texto, novas);
+    } catch (e: any) { setErro(e.message); }
+  }
+
+  const modelos = aj?.models.map((p) => local?.image_models.find((m) => m.path === p)).filter(Boolean) as ModeloImg[] ?? [];
+  const nomes = modelos.map((m) => m.name);
+  // s/passo medido nesta conversa (as imagens prontas trazem o s_passo); sem medição, o padrão da fórmula
+  const medidos = lotes.flatMap((l) => l.imgs).filter((i) => i.s_passo && nomes.includes(i.model_name ?? "")).map((i) => i.s_passo!);
+  const sPasso = medidos.length ? medidos.reduce((a, b) => a + b, 0) / medidos.length : null;
+  const gbModelo = Math.max(0, ...modelos.map((m) => (m.size ?? 0) / GB));
+  const gpu = local?.hardware?.vram ? local.hardware.vram / GB : null;
+  const est = aj ? estimaImagem(aj.opts, sPasso, gbModelo) : null;
+  const passa = !!est && gpu != null && est.vram > gpu;
+  const predef = aj ? predefDe(aj.opts) : undefined;
+  const nomeTam = (o: Opts) => PROPORCOES.find((p) => p.w === o.width && p.h === o.height)?.id ?? `${o.width}×${o.height}`;
+  const resumo = aj ? `${predef?.nome ?? "Personalizado"} · ${nomeTam(aj.opts)} · ×${aj.count}` : "Ajustes";
+  const rotModelo = nomes.length > 1 ? `${nomes.length} modelos` : nomes[0] ?? "Modelo";
 
   return (
     <View style={{ flex: 1, paddingBottom: teclado }}>
@@ -344,6 +412,15 @@ export default function Imagens({ conv, onCriada, onTurno, onAbreChat }:
             <Text style={[s.muted, { textAlign: "center" }]}>
               {local && !local.runtimes?.sd?.installed ? "Instale o stable-diffusion.cpp em IA local no desktop." : "Descreva a imagem. Ela é gerada no PC, com o modelo local."}
             </Text>
+            {aj && !!nomes.length && (
+              <Pressable onPress={() => setFolha(true)} style={{ flexDirection: "row", alignItems: "center", gap: 6, borderWidth: 1, borderColor: c.line,
+                                                                 borderRadius: 999, paddingVertical: 6, paddingHorizontal: 12, marginTop: 4 }}>
+                <Cube size={13} color={c.faint} />
+                <Text style={{ color: c.faint, fontFamily: mono, fontSize: 12 }} numberOfLines={1}>
+                  {rotModelo} · {aj.opts.width}×{aj.opts.height}{est ? ` · ~${tempoFmt(est.s)}` : ""}
+                </Text>
+              </Pressable>
+            )}
           </View>
         }
         renderItem={({ item }) => (
@@ -351,43 +428,38 @@ export default function Imagens({ conv, onCriada, onTurno, onAbreChat }:
                     onContinua={() => comVram((confirm) => api.post(`/imagens/${item.msg.id}/continuar`, { confirm }).then(carrega), "continuar")} />
         )}
       />
-      {!!erro && <Text style={[s.muted, { color: c.red, paddingHorizontal: 14 }]} onPress={() => setErro("")}>{erro}</Text>}
+      {!!erro && <Text style={[s.muted, { color: c.err, paddingHorizontal: 14 }]} onPress={() => setErro("")}>{erro}</Text>}
       {origem ? (
         <View style={{ flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 12, paddingTop: 6, paddingBottom: Math.max(inset.bottom, 10) }}>
           <Text style={[s.faint, { flex: 1, fontSize: 12 }]}>Toque numa imagem para ver as versões, regerar ou trocar a do site.</Text>
-          <Chip rotulo={nomes.length > 1 ? `${nomes.length} modelos` : nomes[0] ?? "Modelo"} icone={<Cubo size={13} color={c.muted} />}
-                onPress={() => setFolha(true)} max={150} />
+          <Chip rotulo={rotModelo} icone={<Cube size={14} color={c.muted} />} onPress={() => setFolha(true)} />
           <Chip rotulo={`×${aj?.count ?? 1}`} onPress={() => setFolha(true)} />
         </View>
       ) : (
       <View style={{ paddingHorizontal: 12, paddingTop: 6, paddingBottom: teclado ? 8 : Math.max(inset.bottom, 10) }}>
         <View style={{ backgroundColor: c.surface, borderColor: c.line, borderWidth: 1, borderRadius: 24, padding: 8, gap: 6 }}>
           {refs.length > 0 && (
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6, paddingHorizontal: 4 }}>
-              {refs.map((r) => (
-                <Pressable key={r} onPress={() => setRefs((x) => x.filter((y) => y !== r))}>
-                  <Image source={{ uri: urlImagem(r) }} style={{ width: 52, height: 52, borderRadius: 10, backgroundColor: c.raised }} />
-                  <Text style={{ position: "absolute", right: 3, top: 1, color: "#fff", fontSize: 12, textShadowColor: "#000", textShadowRadius: 3 }}>✕</Text>
-                </Pressable>
-              ))}
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6, paddingHorizontal: 4, paddingTop: 4 }}>
+              {refs.map((r) => <Miniatura key={r} uri={urlImagem(r)} onTira={() => setRefs((x) => x.filter((y) => y !== r))} />)}
             </ScrollView>
           )}
           <TextInput style={{ color: c.fg, fontSize: 15, maxHeight: 130, paddingHorizontal: 8, paddingTop: 6 }} value={prompt}
                      onChangeText={setPrompt} multiline placeholder={refs.length ? "O que mudar nas referências" : "Descreva a imagem"}
                      placeholderTextColor={c.faint} />
+          {!!est && (
+            <LinhaEstimativa onPress={() => setFolha(true)} passa={passa}
+                             tempo={`~${tempoFmt(est.s)} cada${(aj?.count ?? 1) > 1 ? ` · ~${tempoFmt(est.s * aj!.count)} as ${aj!.count}` : ""}`}
+                             vram={`${num(est.vram, 1)} GB de VRAM`} />
+          )}
           <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6 }} style={{ flex: 1 }}>
-              <Chip rotulo={refs.length ? `📎 ${refs.length}` : "📎"} onPress={anexaRef} />
-              <Chip rotulo={nomes.length > 1 ? `${nomes.length} modelos` : nomes[0] ?? "Modelo"} icone={<Cubo size={13} color={c.muted} />}
-                    onPress={() => setFolha(true)} max={180} />
-              <Chip rotulo={`×${aj?.count ?? 4}`} onPress={() => setFolha(true)} />
-              <Chip rotulo={melhorando ? "melhorando…" : "✨ Melhorar"} onPress={melhora} />
-              <Chip rotulo="⤢ Ampliar" onPress={ampliaDoCelular} />
+              <Chip rotulo={refs.length ? String(refs.length) : undefined} icone={<Paperclip size={15} color={c.muted} />} onPress={anexaRef} />
+              <Chip rotulo={rotModelo} icone={<Cube size={14} color={c.muted} />} onPress={() => setFolha(true)} />
+              <Chip rotulo={resumo} icone={<Sliders size={14} color={c.muted} />} onPress={() => setFolha(true)} />
+              <Chip rotulo={melhorando ? "Melhorando…" : "Melhorar"} icone={<Edit size={14} color={c.muted} />} onPress={melhora} />
+              <Chip rotulo="Ampliar" icone={<Expandir size={14} color={c.muted} />} onPress={ampliaDoCelular} />
             </ScrollView>
-            <Pressable onPress={gera} disabled={!prompt.trim() || !aj?.models.length}
-                       style={[redondo, { opacity: prompt.trim() && aj?.models.length ? 1 : 0.35 }]}>
-              <Enviar size={18} color="#000" />
-            </Pressable>
+            <BotaoEnviar pode={!!prompt.trim() && !!aj?.models.length} onPress={() => gera()} />
           </View>
         </View>
       </View>
@@ -403,67 +475,81 @@ export default function Imagens({ conv, onCriada, onTurno, onAbreChat }:
       </Folha>
 
       {aj && local && (
-        <Folha aberta={folha} titulo="Ajustes da geração" onFecha={() => setFolha(false)}>
+        <Folha aberta={folha} titulo="Ajustes da geração" onFecha={() => setFolha(false)}
+               fixo={<ResumoEstimativa gpu={gpu} vram={est?.vram ?? null} tempo={est ? `~${tempoFmt(est.s)} cada${aj.count > 1 ? ` · ~${tempoFmt(est.s * aj.count)} as ${aj.count}` : ""}` : null}
+                                       linha={`${aj.count} × ${aj.opts.width}×${aj.opts.height} · ${aj.opts.steps} passos · ${aj.opts.sampler}${aj.opts.hires ? ` · hires ${num(aj.opts.hires_scale ?? 1.5)}×` : ""}`}
+                                       estouro="Passa da VRAM da GPU: o sd.cpp divide com a RAM e fica bem mais lento." />}>
+          <Campo rotulo="Predefinição" dica={predef ? undefined : "Personalizado: os valores de Avançado não batem com nenhuma predefinição."}>
+            <View style={{ flexDirection: "row", gap: 8 }}>
+              {PREDEFS.map((p) => {
+                const o = { ...aj.opts, steps: p.steps, cfg: p.cfg, hires: p.hires > 0, hires_scale: p.hires || aj.opts.hires_scale };
+                return <CartaoOpcao key={p.id} titulo={p.nome} sub={p.sub} extra={`~${tempoFmt(estimaImagem(o, sPasso, gbModelo).s)}`}
+                                    on={predef?.id === p.id} onPress={() => mudaOpts({ steps: p.steps, cfg: p.cfg, hires: p.hires > 0,
+                                                                                         ...(p.hires ? { hires_scale: p.hires } : {}) })} />;
+              })}
+            </View>
+          </Campo>
           <Campo rotulo="Modelos" dica="Com mais de um, as variações se dividem entre eles.">
-            {local.image_models.map((m) => {
-              const on = aj.models.includes(m.path);
-              return (
-                <Pressable key={m.path} onPress={() => {
-                  // Marcar um modelo traz os parâmetros dele (passos, cfg, tamanho, amostrador), como no desktop.
-                  const models = on ? aj.models.filter((p) => p !== m.path) : [...aj.models, m.path];
-                  const pr = !on && m.params ? Object.fromEntries(Object.entries(m.params).filter(([k]) => k in aj.opts)) : {};
-                  muda({ models, opts: { ...aj.opts, ...pr } });
-                }} style={{ flexDirection: "row", alignItems: "center", gap: 10, padding: 10, borderRadius: 12, backgroundColor: on ? c.raised : "transparent" }}>
-                  <Text style={{ color: on ? c.fg : c.faint, fontSize: 16 }}>{on ? "☑" : "☐"}</Text>
-                  <Text style={[s.txt, { flex: 1 }]} numberOfLines={1}>{m.name}</Text>
-                </Pressable>
-              );
-            })}
+            <View>
+              {local.image_models.map((m) => {
+                const on = aj.models.includes(m.path);
+                return (
+                  <Caixa key={m.path} rotulo={m.name} on={on} sub={[m.req?.nome, m.size ? `${num(m.size / GB, 1)} GB` : ""].filter(Boolean).join(" · ")}
+                         onPress={() => {
+                           // Marcar um modelo traz os parâmetros dele (passos, cfg, tamanho, amostrador), como no desktop.
+                           const models = on ? aj.models.filter((p) => p !== m.path) : [...aj.models, m.path];
+                           const pr = !on && m.params ? Object.fromEntries(Object.entries(m.params).filter(([k]) => k in aj.opts)) : {};
+                           muda({ models, opts: { ...aj.opts, ...pr } });
+                         }} />
+                );
+              })}
+            </View>
           </Campo>
-          <Campo rotulo="Variações"><Contador valor={aj.count} min={1} max={50} onMuda={(n) => muda({ count: n })} /></Campo>
+          <Proporcao o={aj.opts} onMuda={(w, h) => mudaOpts({ width: w, height: h })} />
+          <LinhaAjuste rotulo="Variações" sub="Imagens por pedido">
+            <Contador valor={aj.count} min={1} max={50} onMuda={(n) => muda({ count: n })} />
+          </LinhaAjuste>
           <Campo rotulo="Negativo">
-            <TextInput style={s.input} value={aj.opts.negative} onChangeText={(t) => mudaOpts({ negative: t })} multiline
-                       placeholder="O que evitar na imagem" placeholderTextColor={c.faint} />
+            <Area valor={aj.opts.negative} onMuda={(t) => mudaOpts({ negative: t })} placeholder="O que evitar na imagem" />
           </Campo>
-          <Campo rotulo="Proporção">
-            <Seletor opcoes={PROPORCOES.map((p) => ({ id: p.id, rotulo: `${p.id} · ${p.w}×${p.h}` }))}
-                     valor={PROPORCOES.find((p) => p.w === aj.opts.width && p.h === aj.opts.height)?.id ?? ""}
-                     onMuda={(id) => { const p = PROPORCOES.find((x) => x.id === id)!; mudaOpts({ width: p.w, height: p.h }); }} />
-          </Campo>
-          <Campo rotulo="Largura"><Contador valor={aj.opts.width} min={256} max={2048} passo={64} sufixo="px" onMuda={(n) => mudaOpts({ width: n })} /></Campo>
-          <Campo rotulo="Altura"><Contador valor={aj.opts.height} min={256} max={2048} passo={64} sufixo="px" onMuda={(n) => mudaOpts({ height: n })} /></Campo>
-          <Campo rotulo="Passos"><Contador valor={aj.opts.steps} min={1} max={150} onMuda={(n) => mudaOpts({ steps: n })} /></Campo>
-          <Campo rotulo="CFG"><Contador valor={aj.opts.cfg} min={0} max={30} passo={0.5} onMuda={(n) => mudaOpts({ cfg: n })} /></Campo>
-          <Campo rotulo="Amostrador">
-            <Seletor opcoes={AMOSTRADORES.map((a) => ({ id: a, rotulo: a }))} valor={aj.opts.sampler} onMuda={(v) => mudaOpts({ sampler: v })} />
-          </Campo>
-          <Campo rotulo="Alta resolução" dica="Gera, amplia e o próprio modelo redesenha por cima: mais detalhe, bem mais tempo.">
-            <Seletor<"0" | "1.5" | "2"> opcoes={[{ id: "0", rotulo: "Desligada" }, { id: "1.5", rotulo: "1,5×" }, { id: "2", rotulo: "2×" }]}
-                     valor={aj.opts.hires ? (String(aj.opts.hires_scale ?? 1.5) as "1.5" | "2") : "0"}
-                     onMuda={(v) => mudaOpts(v === "0" ? { hires: false } : { hires: true, hires_scale: Number(v) })} />
-          </Campo>
-          {aj.opts.hires && (
-            <Campo rotulo="Denoise" dica="Quanto a 2ª passada pode mudar: 0,3 mantém e limpa; 0,6 inventa detalhe.">
-              <Seletor<"0.3" | "0.45" | "0.6"> opcoes={[{ id: "0.3", rotulo: "0,3" }, { id: "0.45", rotulo: "0,45" }, { id: "0.6", rotulo: "0,6" }]}
-                       valor={String(aj.opts.hires_denoise ?? 0.45) as "0.3" | "0.45" | "0.6"} onMuda={(v) => mudaOpts({ hires_denoise: Number(v) })} />
+          <Recolhivel titulo="Avançado" sub={`${aj.opts.steps} passos · CFG ${num(aj.opts.cfg)} · ${aj.opts.sampler} · ${SEMENTES.find((x) => x.id === aj.seed_mode)?.rotulo.toLowerCase()}`}>
+            <Deslizador rotulo="Passos" valor={aj.opts.steps} min={1} max={60} onMuda={(n) => mudaOpts({ steps: n })} />
+            <Deslizador rotulo="CFG" valor={aj.opts.cfg} min={0} max={15} passo={0.5} onMuda={(n) => mudaOpts({ cfg: n })}
+                        dica="Quanto o modelo segue o prompt. FLUX e LCM pedem 1." />
+            <View style={{ flexDirection: "row", gap: 10 }}>
+              <View style={{ flex: 1 }}><Campo rotulo="Largura">
+                <Contador caixa valor={aj.opts.width} min={256} max={2048} passo={64} onMuda={(n) => mudaOpts({ width: n })} />
+              </Campo></View>
+              <View style={{ flex: 1 }}><Campo rotulo="Altura">
+                <Contador caixa valor={aj.opts.height} min={256} max={2048} passo={64} onMuda={(n) => mudaOpts({ height: n })} />
+              </Campo></View>
+            </View>
+            <Campo rotulo="Amostrador">
+              <Seletor rolavel opcoes={AMOSTRADORES.map((a) => ({ id: a, rotulo: a }))} valor={aj.opts.sampler} onMuda={(v) => mudaOpts({ sampler: v })} />
             </Campo>
-          )}
-          <Campo rotulo="Sementes">
-            <Seletor opcoes={SEMENTES} valor={aj.seed_mode} onMuda={(v) => muda({ seed_mode: v })} />
-          </Campo>
-          {aj.seed_mode !== "aleatoria" && (
-            <Campo rotulo="Semente base" dica="0 = escolhe uma ao acaso.">
-              <Contador valor={aj.seed} min={0} max={2147483647} onMuda={(n) => muda({ seed: n })} />
+            <Campo rotulo="Alta resolução" dica="Gera, amplia e o próprio modelo redesenha por cima: mais detalhe, bem mais tempo.">
+              <Seletor<"0" | "1.5" | "2"> cheio opcoes={[{ id: "0", rotulo: "Desligada" }, { id: "1.5", rotulo: "1,5×" }, { id: "2", rotulo: "2×" }]}
+                       valor={aj.opts.hires ? (String(aj.opts.hires_scale ?? 1.5) as "1.5" | "2") : "0"}
+                       onMuda={(v) => mudaOpts(v === "0" ? { hires: false } : { hires: true, hires_scale: Number(v) })} />
             </Campo>
-          )}
+            {aj.opts.hires && (
+              <Deslizador rotulo="Denoise" valor={aj.opts.hires_denoise ?? 0.45} min={0.2} max={0.7} passo={0.05} casas={2}
+                          onMuda={(n) => mudaOpts({ hires_denoise: n })} pontas={["mantém e limpa", "inventa detalhe"]} />
+            )}
+            <Campo rotulo="Sementes">
+              <Seletor cheio opcoes={SEMENTES} valor={aj.seed_mode} onMuda={(v) => muda({ seed_mode: v })} />
+            </Campo>
+            {aj.seed_mode !== "aleatoria" && <CampoSemente valor={aj.seed} onMuda={(n) => muda({ seed: n })} />}
+          </Recolhivel>
         </Folha>
       )}
 
       <Folha aberta={!!salvar} titulo={salvar && salvar.length > 1 ? `Salvar ${salvar.length} imagens` : "Salvar imagem"} onFecha={() => setSalvar(null)}>
         <Lista<Destino> valor={"" as Destino} onEscolhe={paraDestino} opcoes={[
-          { id: "galeria", rotulo: "Galeria", dica: "Aparece na galeria, junto das fotos da câmera (DCIM)" },
-          { id: "pasta", rotulo: "Escolher pasta…", dica: "Qualquer pasta do celular ou do cartão (seletor do Android)" },
-          ...(salvar?.length === 1 ? [{ id: "compartilhar" as Destino, rotulo: "Compartilhar…", dica: "WhatsApp, Drive, e-mail ou outro app" }] : []),
+          { id: "galeria", rotulo: "Galeria", dica: "Aparece na galeria, junto das fotos da câmera (DCIM)", icone: <Download size={17} color={c.muted} /> },
+          { id: "pasta", rotulo: "Escolher pasta…", dica: "Qualquer pasta do celular ou do cartão (seletor do Android)", icone: <Folder size={17} color={c.muted} /> },
+          ...(salvar?.length === 1 ? [{ id: "compartilhar" as Destino, rotulo: "Compartilhar…", dica: "WhatsApp, Drive, e-mail ou outro app",
+                                        icone: <ExternalLink size={17} color={c.muted} /> }] : []),
         ]} />
       </Folha>
 
@@ -476,13 +562,137 @@ export default function Imagens({ conv, onCriada, onTurno, onAbreChat }:
 
       <FolhaAmpliar key={ampliar?.path ?? ""} alvo={ampliar} onFecha={() => setAmpliar(null)} onAmpliar={amplia} onErro={setErro} />
 
-      <Visor img={ver} detalhe={redesenhoDe(lotes.find((l) => l.msg.id === ver?.mid)?.msg)} onFecha={() => setVer(null)} onBaixar={baixa}
-             onAmpliar={(i, w, h) => { setVer(null);
-               setAmpliar({ path: i.path, mid: i.mid, w, h, prompt: promptDaImagem(lotes.find((l) => l.msg.id === i.mid)?.user) }); }}
-             onEditar={origem ? undefined : (p) => { setRefs((x) => (x.includes(p) || x.length >= MAX_REFS ? x : [...x, p])); setVer(null); }}
-             onSemente={origem ? undefined : (n) => { muda({ seed: n, seed_mode: "fixa" }); setVer(null); }}
-             onUsarNoSite={ver && chaveSlot(ver) && !ver.destino ? () => { const v = ver; setVer(null); acao(`/imagens/${convId}/escolher`, { slot: chaveSlot(v), path: v.path }); } : undefined} />
+      {(() => {
+        const lote = lotes.find((l) => l.msg.id === ver?.mid);
+        const doLote = (lote?.imgs ?? []).filter((i) => ["pronta", "mantida"].includes(i.status));
+        return (
+          <Visor img={ver} fila={doLote} onI={setVer} prompt={promptDaImagem(lote?.user)} detalhe={redesenhoDe(lote?.msg)} onFecha={() => setVer(null)} onBaixar={baixa}
+                 onAmpliar={(i, w, h) => { setVer(null); setAmpliar({ path: i.path, mid: i.mid, w, h, prompt: promptDaImagem(lote?.user) }); }}
+                 onEditar={origem ? undefined : (p) => { setRefs((x) => (x.includes(p) || x.length >= MAX_REFS ? x : [...x, p])); setVer(null); }}
+                 onPintar={origem ? undefined : (i, w, h) => { setVer(null); setPintar({ path: i.path, w: w ?? 1024, h: h ?? 1024 }); }}
+                 onSemente={origem ? undefined : (n) => { muda({ seed: n, seed_mode: "fixa" }); setVer(null); }}
+                 onUsarNoSite={ver && chaveSlot(ver) && !ver.destino ? () => { const v = ver; setVer(null); acao(`/imagens/${convId}/escolher`, { slot: chaveSlot(v), path: v.path }); } : undefined} />
+        );
+      })()}
+
+      <Mascara alvo={pintar} modelo={nomes[0]} onFecha={() => setPintar(null)}
+               onPronta={(uri, modo, tracos) => { const p = pintar!; setPintar(null); setPintura({ uri, modo, tracos, original: p.path }); }} />
+      <Folha aberta={!!pintura} titulo="O que mudar na área marcada" onFecha={() => setPintura(null)}>
+        {pintura && <FolhaPintura p={pintura} count={aj?.count ?? 4} onGerar={usaPintura} />}
+      </Folha>
     </View>
+  );
+}
+
+/** Linha de estimativa do composer (Imagens e Vídeo): tempo e VRAM, âmbar quando passa da GPU. */
+export function LinhaEstimativa({ tempo, vram, passa, onPress }: { tempo: string; vram: string; passa: boolean; onPress: () => void }) {
+  const cor = passa ? c.warn : c.faint;
+  return (
+    <Pressable onPress={onPress} style={{ flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 8 }}>
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 4, flexShrink: 1 }}>
+        <Clock size={12} color={c.faint} />
+        <Text style={{ color: c.faint, fontFamily: mono, fontSize: 11.5 }} numberOfLines={1}>{tempo}</Text>
+      </View>
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+        <Gauge size={12} color={cor} />
+        <Text style={{ color: cor, fontFamily: mono, fontSize: 11.5 }} numberOfLines={1}>{vram}</Text>
+      </View>
+    </Pressable>
+  );
+}
+
+/** Enviar: círculo de 36 no acento; desabilitado em raised com o ícone apagado. */
+export function BotaoEnviar({ pode, onPress }: { pode: boolean; onPress: () => void }) {
+  return (
+    <Pressable onPress={onPress} disabled={!pode} style={{ width: 36, height: 36, borderRadius: 18, alignItems: "center", justifyContent: "center",
+                                                           backgroundColor: pode ? c.accent : c.raised }}>
+      <ArrowUp size={18} color={pode ? c.accentFg : c.faint} />
+    </Pressable>
+  );
+}
+
+/** Miniatura de referência (52×52) com o X de 18 no canto. */
+export function Miniatura({ uri, onTira, lado = 52 }: { uri: string; onTira: () => void; lado?: number }) {
+  return (
+    <View>
+      <Image source={{ uri }} style={{ width: lado, height: lado, borderRadius: 10, backgroundColor: c.raised }} />
+      <Pressable onPress={onTira} hitSlop={8} style={{ position: "absolute", right: 3, top: 3, width: 18, height: 18, borderRadius: 9,
+                                                       backgroundColor: "#0009", alignItems: "center", justifyContent: "center" }}>
+        <X size={11} color="#fff" />
+      </Pressable>
+    </View>
+  );
+}
+
+/** Semente base: número mono com Sortear ao lado. */
+export function CampoSemente({ valor, onMuda }: { valor: number; onMuda: (n: number) => void }) {
+  return (
+    <Campo rotulo="Semente base" dica="0 = escolhe uma ao acaso.">
+      <View style={{ flexDirection: "row", gap: 8 }}>
+        <TextInput style={[s.input, { flex: 1, height: 44, fontFamily: mono, fontSize: 15, paddingVertical: 0 }]} keyboardType="number-pad"
+                   value={String(valor)} onChangeText={(t) => { const n = Number(t.replace(/\D/g, "")); if (!Number.isNaN(n)) onMuda(Math.min(n, 2147483647)); }} />
+        <Botao rotulo="Sortear" altura={44} icone={<Refresh size={14} color={c.fg} />} onPress={() => onMuda(Math.floor(Math.random() * 2147483647))} />
+      </View>
+    </Campo>
+  );
+}
+
+/** Proporção em cartões (rolável), com o Livre: razão a:b que mantém a área, em múltiplos de 64. */
+function Proporcao({ o, onMuda }: { o: Opts; onMuda: (w: number, h: number) => void }) {
+  const fixa = PROPORCOES.find((p) => p.w === o.width && p.h === o.height);
+  const [livre, setLivre] = useState(!fixa);
+  const [a, b] = razao(o.width, o.height);
+  const [ta, setTa] = useState(String(a));
+  const [tb, setTb] = useState(String(b));
+  useEffect(() => { setTa(String(a)); setTb(String(b)); }, [a, b]);
+  const aplica = (x: string, y: string) => {
+    const na = Math.min(64, Math.max(1, Number(x) || 1)), nb = Math.min(64, Math.max(1, Number(y) || 1));
+    const t = tamanhoLivre(o.width, o.height, na, nb);
+    onMuda(t.w, t.h);
+  };
+  const campo = { width: 44, height: 38, borderRadius: 9, borderWidth: 1, borderColor: c.line, backgroundColor: c.bg, color: c.fg,
+                  fontFamily: mono, fontSize: 14, textAlign: "center" as const, padding: 0 };
+  return (
+    <Campo rotulo="Proporção">
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginHorizontal: -16 }} contentContainerStyle={{ paddingHorizontal: 16, gap: 8 }}>
+        {PROPORCOES.map((p) => (
+          <CartaoProporcao key={p.id} rotulo={p.id} w={p.w} h={p.h} px={`${p.w}×${p.h}`} on={!livre && fixa?.id === p.id}
+                           onPress={() => { setLivre(false); onMuda(p.w, p.h); }} />
+        ))}
+        <CartaoProporcao rotulo={livre ? `${a}:${b}` : "Livre"} w={o.width} h={o.height} px={livre ? `${o.width}×${o.height}` : "a:b"} on={livre}
+                         onPress={() => setLivre(true)} />
+      </ScrollView>
+      {livre && (
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: c.surface, borderRadius: 12, paddingVertical: 10, paddingHorizontal: 12 }}>
+          <Text style={s.muted}>Proporção</Text>
+          <TextInput style={campo} keyboardType="number-pad" value={ta} onChangeText={setTa} onEndEditing={() => aplica(ta, tb)} />
+          <Text style={{ color: c.faint }}>:</Text>
+          <TextInput style={campo} keyboardType="number-pad" value={tb} onChangeText={setTb} onEndEditing={() => aplica(ta, tb)} />
+          <BotaoIcone lado={38} onPress={() => onMuda(o.height, o.width)}><Trocar size={16} color={c.fg} /></BotaoIcone>
+          <Text style={{ flex: 1, textAlign: "right", color: c.faint, fontFamily: mono, fontSize: 11 }}>{o.width}×{o.height} px · múltiplos de 64</Text>
+        </View>
+      )}
+    </Campo>
+  );
+}
+
+/** Depois do editor de máscara: miniatura, o resumo e o que mudar; gera com a máscara como referência. */
+function FolhaPintura({ p, count, onGerar }: { p: { uri: string; modo: "mascara" | "anotacao"; tracos: number }; count: number; onGerar: (t: string) => void }) {
+  const [t, setT] = useState("");
+  return (
+    <>
+      <View style={{ flexDirection: "row", gap: 12, alignItems: "center" }}>
+        <Image source={{ uri: p.uri }} style={{ width: 64, height: 64, borderRadius: 10, backgroundColor: "#000" }} />
+        <Text style={[s.muted, { flex: 1, lineHeight: 19 }]}>
+          {p.modo === "mascara" ? `Máscara com ${p.tracos} traços. A original vai inteira como primeira referência.`
+                                : `Anotação com ${p.tracos} traços. Ela entra no lugar da original.`}
+        </Text>
+      </View>
+      <Area valor={t} onMuda={setT} linhas={3}
+            placeholder={p.modo === "mascara" ? "ex.: replace with a steel anvil, same lighting" : "ex.: remove the watch in the red circle"} />
+      <Botao primario altura={48} rotulo={`Gerar ${count} versões`} icone={<ArrowUp size={16} color={c.accentFg} />} desabilitado={!t.trim()}
+             onPress={() => onGerar(t.trim())} />
+    </>
   );
 }
 
@@ -495,7 +705,25 @@ function promptDaImagem(pedido?: Msg): string {
   return amp.prompt || (/\.(png|jpe?g|webp)$/i.test(pedido.content ?? "") ? "" : pedido.content ?? "");
 }
 
-const redondo = { width: 36, height: 36, borderRadius: 18, backgroundColor: c.fg, alignItems: "center" as const, justifyContent: "center" as const };
+/** mosaico.ts do desktop: cada item vai para a coluna mais baixa até ali (proporções w/h). */
+export function distribuir(proporcoes: number[], colunas = 2, rodape = 0): number[][] {
+  const alturas = Array(colunas).fill(0);
+  const cols: number[][] = Array.from({ length: colunas }, () => []);
+  proporcoes.forEach((r, i) => {
+    const k = alturas.indexOf(Math.min(...alturas));
+    cols[k].push(i);
+    alturas[k] += 1 / (r || 1) + rodape;
+  });
+  return cols;
+}
+
+/** Selo de check (22×22) no canto do tile escolhido. */
+const SeloCheck = () => (
+  <View style={{ position: "absolute", right: 8, top: 8, width: 22, height: 22, borderRadius: 6, backgroundColor: c.accent,
+                 alignItems: "center", justifyContent: "center" }}>
+    <Check size={14} color={c.accentFg} />
+  </View>
+);
 
 function LoteView({ lote, onVer, onAcao, onReaproveita, onContinua, onBaixar }: {
   lote: Lote; onVer: (i: Img) => void; onAcao: (path: string, body?: unknown) => void; onReaproveita: () => void; onContinua: () => void;
@@ -508,7 +736,57 @@ function LoteView({ lote, onVer, onAcao, onReaproveita, onContinua, onBaixar }: 
   const lado = (width - 24 - 8) / 2;
   const rodando = lote.msg.status === "running";
   const prontas = lote.imgs.filter((i) => i.status === "pronta");
+  const salvaveis = lote.imgs.filter((i) => ["pronta", "mantida"].includes(i.status));
   const refazer = lote.imgs.filter((i) => REFAZIVEIS.includes(i.status)).length;
+  const o = (lote.msg.meta?.opts ?? {}) as Partial<Opts>;
+  const razaoDe = (i: Img) => (i.w && i.h ? i.w / i.h : i.width && i.height ? i.width / i.height : o.width && o.height ? o.width / o.height : 1);
+  const colunas = distribuir(lote.imgs.map(razaoDe), 2);
+  const tags = [lote.imgs[0]?.model_name, o.width && `${o.width}×${o.height}`, o.steps && `${o.steps} passos`, o.sampler].filter(Boolean) as string[];
+
+  const tile = (img: Img) => {
+    // Prévia ao vivo: o sd-cli regrava o arquivo de prévia a cada passo; o &v= fura o cache da imagem.
+    // ampliação em andamento: a original por trás, como no desktop
+    const origem = lote.msg.meta?.opts?.ampliacao?.origem as string | undefined;
+    const src = img.status === "gerando" && img.preview ? urlImagem(img.preview, String(img.progress ?? 0)) :
+                ["pronta", "mantida"].includes(img.status) ? urlImagem(img.path) :
+                ["gerando", "pendente"].includes(img.status) && origem ? urlImagem(origem) : null;
+    const marcada = manter.includes(img.path);
+    return (
+      <Pressable key={img.path + img.seed} style={{ width: "100%", aspectRatio: razaoDe(img), borderRadius: 14, overflow: "hidden",
+                   backgroundColor: c.surface, borderColor: marcada ? c.accent : c.line, borderWidth: marcada ? 2 : 1 }}
+                 onPress={() => (escolhendo && img.status === "pronta"
+                   ? setManter((m) => (marcada ? m.filter((p) => p !== img.path) : [...m, img.path]))
+                   : ["pronta", "mantida"].includes(img.status) && onVer(img))}>
+        {src ? <Image source={{ uri: src }} style={{ flex: 1 }} resizeMode="cover" fadeDuration={0} /> : (
+          <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
+            {img.status === "pendente" ? <ActivityIndicator color={c.muted} /> : null}
+          </View>
+        )}
+        {/* sem prévia ao vivo (ampliação, modelo sem modo de prévia): o líquido do desktop sobe com o progresso */}
+        {img.status === "gerando" && !img.preview && <Liquido fracao={img.progress ?? 0} largura={lado} />}
+        {marcada && <SeloCheck />}
+        {!!img.nome && img.status === "pronta" && !rodando && (
+          <Text style={{ position: "absolute", left: 6, bottom: 6, color: "#fff", fontSize: 11, fontFamily: mono, backgroundColor: "#000a",
+                         borderRadius: 6, paddingHorizontal: 5, paddingVertical: 2 }} numberOfLines={1}>{img.destino ? "● " : ""}{img.nome}</Text>
+        )}
+        {(img.status !== "pronta" || rodando) && !!ROTULO[img.status] && (
+          <View style={{ position: "absolute", left: 6, bottom: 6, right: 6, backgroundColor: "#000b", borderRadius: 8, padding: 6 }}>
+            <Text style={{ color: img.status === "erro" ? c.err : img.status === "mantida" ? c.ok : c.fg, fontSize: 12 }} numberOfLines={2}>
+              {img.fase ?? ROTULO[img.status]}{img.status === "gerando" && img.progress != null ? ` ${Math.round(img.progress * 100)}%` : ""}
+              {img.status === "gerando" && img.s_passo ? ` · ${velocidade(img.s_passo)}` : ""}
+              {img.status === "gerando" && img.restante ? ` · ${restante(img.restante)}` : ""}{img.error ? ` · ${img.error}` : ""}
+            </Text>
+            {img.status === "gerando" && (
+              <View style={{ height: 3, backgroundColor: c.line, borderRadius: 2, marginTop: 4 }}>
+                <View style={{ height: 3, width: `${Math.round((img.progress ?? 0) * 100)}%`, backgroundColor: c.accent, borderRadius: 2 }} />
+              </View>
+            )}
+          </View>
+        )}
+      </Pressable>
+    );
+  };
+
   return (
     <View style={{ gap: 10 }}>
       {!!lote.user?.content && (
@@ -516,82 +794,33 @@ function LoteView({ lote, onVer, onAcao, onReaproveita, onContinua, onBaixar }: 
           <Text style={s.txt} selectable>{lote.user.content}</Text>
         </View>
       )}
-      <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
-        {lote.imgs.map((img) => {
-          // Prévia ao vivo: o sd-cli regrava o arquivo de prévia a cada passo; o &v= fura o cache da imagem.
-          // ampliação em andamento: a original por trás, como no desktop
-          const origem = lote.msg.meta?.opts?.ampliacao?.origem as string | undefined;
-          const src = img.status === "gerando" && img.preview ? urlImagem(img.preview, String(img.progress ?? 0)) :
-                      ["pronta", "mantida"].includes(img.status) ? urlImagem(img.path) :
-                      ["gerando", "pendente"].includes(img.status) && origem ? urlImagem(origem) : null;
-          const marcada = manter.includes(img.path);
-          return (
-            <Pressable key={img.path + img.seed} style={{ width: lado, height: lado * 1.25, borderRadius: 14, overflow: "hidden",
-                         backgroundColor: c.surface, borderColor: marcada ? c.fg : c.line, borderWidth: marcada ? 2 : 1 }}
-                       onPress={() => (escolhendo && img.status === "pronta"
-                         ? setManter((m) => (marcada ? m.filter((p) => p !== img.path) : [...m, img.path]))
-                         : ["pronta", "mantida"].includes(img.status) && onVer(img))}>
-              {src ? <Image source={{ uri: src }} style={{ flex: 1 }} resizeMode="cover" fadeDuration={0} /> : (
-                <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
-                  {img.status === "pendente" ? <ActivityIndicator color={c.muted} /> : null}
-                </View>
-              )}
-              {/* sem prévia ao vivo (ampliação, modelo sem modo de prévia): o líquido do desktop sobe com o progresso */}
-              {img.status === "gerando" && !img.preview && <Liquido fracao={img.progress ?? 0} largura={lado} />}
-              {!!img.nome && img.status === "pronta" && !rodando && (
-                <Text style={{ position: "absolute", left: 6, bottom: 6, color: "#fff", fontSize: 11, fontFamily: mono, backgroundColor: "#000a",
-                               borderRadius: 6, paddingHorizontal: 5, paddingVertical: 2 }} numberOfLines={1}>{img.destino ? "● " : ""}{img.nome}</Text>
-              )}
-              {(img.status !== "pronta" || rodando) && !!ROTULO[img.status] && (
-                <View style={{ position: "absolute", left: 6, bottom: 6, right: 6, backgroundColor: "#000b", borderRadius: 8, padding: 6 }}>
-                  <Text style={{ color: img.status === "erro" ? c.red : c.fg, fontSize: 12 }} numberOfLines={2}>
-                    {img.fase ?? ROTULO[img.status]}{img.status === "gerando" && img.progress != null ? ` ${Math.round(img.progress * 100)}%` : ""}
-                    {img.status === "gerando" && img.s_passo ? ` · ${velocidade(img.s_passo)}` : ""}
-                    {img.status === "gerando" && img.restante ? ` · ${restante(img.restante)}` : ""}{img.error ? ` · ${img.error}` : ""}
-                  </Text>
-                  {img.status === "gerando" && (
-                    <View style={{ height: 3, backgroundColor: c.line, borderRadius: 2, marginTop: 4 }}>
-                      <View style={{ height: 3, width: `${Math.round((img.progress ?? 0) * 100)}%`, backgroundColor: c.fg, borderRadius: 2 }} />
-                    </View>
-                  )}
-                </View>
-              )}
-            </Pressable>
-          );
-        })}
+      {tags.length > 0 && (
+        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
+          {tags.map((t) => (
+            <Text key={t} style={{ color: c.faint, fontFamily: mono, fontSize: 11.5, backgroundColor: c.raised, borderRadius: 5,
+                                   paddingHorizontal: 7, paddingVertical: 2, overflow: "hidden" }}>{t}</Text>
+          ))}
+        </View>
+      )}
+      <View style={{ flexDirection: "row", gap: 8, alignItems: "flex-start" }}>
+        {colunas.map((col, k) => <View key={k} style={{ flex: 1, gap: 8 }}>{col.map((i) => tile(lote.imgs[i]))}</View>)}
       </View>
       <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
-        {rodando && (
-          <Pressable style={[s.btnSec, { flexDirection: "row", gap: 6 }]} onPress={() => onAcao(`/imagens/${lote.msg.id}/cancelar`)}>
-            <Parar size={13} /><Text style={s.btnSecTxt}>Cancelar lote</Text>
-          </Pressable>
-        )}
-        {!rodando && refazer > 0 && (
-          <Pressable style={s.btnSec} onPress={onContinua}><Text style={s.btnSecTxt}>Continuar ({refazer})</Text></Pressable>
+        {rodando && <Botao rotulo="Cancelar lote" icone={<Square size={12} color={c.fg} />} onPress={() => onAcao(`/imagens/${lote.msg.id}/cancelar`)} />}
+        {!rodando && refazer > 0 && <Botao rotulo={`Continuar (${refazer})`} icone={<Refresh size={14} color={c.fg} />} onPress={onContinua} />}
+        {!rodando && !escolhendo && <Botao rotulo="Reaproveitar" icone={<Refresh size={14} color={c.fg} />} onPress={onReaproveita} />}
+        {!rodando && !escolhendo && salvaveis.length > 0 && (
+          <Botao rotulo={baixando ? "Salvando…" : salvaveis.length > 1 ? "Salvar todas" : "Salvar"} icone={<Download size={14} color={c.fg} />}
+                 desabilitado={baixando} onPress={async () => { setBaixando(true); await onBaixar(salvaveis.map((i) => i.path)); setBaixando(false); }} />
         )}
         {!rodando && prontas.length > 1 && !escolhendo && (
-          <Pressable style={s.btnSec} onPress={() => { setEscolhendo(true); setManter([]); }}>
-            <Text style={s.btnSecTxt}>Escolher quais manter</Text>
-          </Pressable>
-        )}
-        {!rodando && !escolhendo && (
-          <Pressable style={s.btnSec} onPress={onReaproveita}><Text style={s.btnSecTxt}>Reaproveitar</Text></Pressable>
-        )}
-        {!rodando && !escolhendo && lote.imgs.some((i) => ["pronta", "mantida"].includes(i.status)) && (
-          <Pressable style={s.btnSec} disabled={baixando}
-                     onPress={async () => { setBaixando(true); await onBaixar(lote.imgs.filter((i) => ["pronta", "mantida"].includes(i.status)).map((i) => i.path)); setBaixando(false); }}>
-            <Text style={s.btnSecTxt}>{baixando ? "Salvando…" : prontas.length + lote.imgs.filter((i) => i.status === "mantida").length > 1 ? "Salvar todas" : "Salvar"}</Text>
-          </Pressable>
+          <Botao rotulo="Escolher" icone={<Check size={14} color={c.fg} />} onPress={() => { setEscolhendo(true); setManter([]); }} />
         )}
         {escolhendo && (
           <>
-            <Pressable style={s.btn} onPress={() => { setEscolhendo(false); onAcao(`/imagens/${lote.msg.id}/decidir`, { keep: manter }); }}>
-              <Text style={s.btnTxt}>Manter {manter.length} · descartar {prontas.length - manter.length}</Text>
-            </Pressable>
-            <Pressable style={s.btnSec} onPress={() => setManter(manter.length === prontas.length ? [] : prontas.map((i) => i.path))}>
-              <Text style={s.btnSecTxt}>{manter.length === prontas.length ? "Limpar seleção" : "Marcar todas"}</Text>
-            </Pressable>
-            <Pressable style={s.btnSec} onPress={() => setEscolhendo(false)}><Text style={s.btnSecTxt}>Voltar</Text></Pressable>
+            <Botao primario rotulo={`Manter ${manter.length} · descartar ${prontas.length - manter.length}`}
+                   onPress={() => { setEscolhendo(false); onAcao(`/imagens/${lote.msg.id}/decidir`, { keep: manter }); }} />
+            <Botao rotulo="Voltar" icone={<ArrowLeft size={14} color={c.fg} />} onPress={() => setEscolhendo(false)} />
           </>
         )}
       </View>
@@ -611,36 +840,80 @@ function redesenhoDe(msg?: Msg): string {
   return a?.forca == null ? "" : `redesenho · força ${a.forca.toFixed(2).replace(".", ",")}${a.prompt ? ` · “${a.prompt}”` : ""}`;
 }
 
-function Visor({ img, detalhe, onFecha, onEditar, onSemente, onBaixar, onUsarNoSite, onAmpliar }:
-  { img: Img | null; detalhe?: string; onFecha: () => void; onEditar?: (p: string) => void; onSemente?: (n: number) => void; onBaixar: (p: string[]) => Promise<void>;
+/** Botão da grade de ações (altura 64, ícone em cima, rótulo centralizado e sem quebra). */
+export function AcaoGrade({ rotulo, icone, onPress, altura = 64 }: { rotulo: string; icone: React.ReactNode; onPress: () => void; altura?: number }) {
+  return (
+    <Pressable onPress={onPress} style={({ pressed }) => ({ flex: 1, height: altura, borderRadius: 14, borderWidth: 1, borderColor: c.line, gap: 6,
+                                                             alignItems: "center", justifyContent: "center", backgroundColor: pressed ? c.raised : "transparent" })}>
+      {icone}
+      <Text style={{ color: c.fg, fontSize: 12.5, textAlign: "center" }} numberOfLines={1} adjustsFontSizeToFit>{rotulo}</Text>
+    </Pressable>
+  );
+}
+
+/** Seta ‹ › de 44 (fundo #0009) nas bordas da área da mídia, centrada na vertical. */
+export function SetaMidia({ lado, ativa, onPress }: { lado: "esq" | "dir"; ativa: boolean; onPress: () => void }) {
+  return (
+    <Pressable onPress={onPress} disabled={!ativa}
+               style={{ position: "absolute", top: "50%", marginTop: -22, [lado === "esq" ? "left" : "right"]: 8, width: 44, height: 44, borderRadius: 22,
+                        backgroundColor: "#0009", alignItems: "center", justifyContent: "center", opacity: ativa ? 1 : 0.25 }}>
+      {lado === "esq" ? <Voltar size={22} color="#fff" /> : <Seta size={22} color="#fff" />}
+    </Pressable>
+  );
+}
+
+function Visor({ img, fila, onI, prompt, detalhe, onFecha, onEditar, onPintar, onSemente, onBaixar, onUsarNoSite, onAmpliar }:
+  { img: Img | null; fila: Img[]; onI: (i: Img) => void; prompt: string; detalhe?: string; onFecha: () => void; onEditar?: (p: string) => void;
+    onPintar?: (i: Img, w?: number, h?: number) => void; onSemente?: (n: number) => void; onBaixar: (p: string[]) => Promise<void>;
     onUsarNoSite?: () => void; onAmpliar: (i: Img, w?: number, h?: number) => void }) {
   const inset = useSafeAreaInsets();
   const [baixando, setBaixando] = useState(false);
-  const [proporcao, setProporcao] = useState(0.75); // largura/altura real, vinda do onLoad
   const [tam, setTam] = useState<{ w: number; h: number } | null>(null);
+  const [area, setArea] = useState<{ w: number; h: number } | null>(null);
+  useEffect(() => setTam(null), [img?.path]);
   if (!img) return null;
+  const k = fila.findIndex((x) => x.path === img.path);
+  const w = tam?.w ?? img.w ?? img.width, h = tam?.h ?? img.h ?? img.height;
+  const r = w && h ? w / h : 1;
+  // contida nos dois eixos: retrato ganha faixas pretas nas laterais e não empurra os botões
+  const largura = area ? Math.min(area.w, area.h * r) : 0;
   return (
     <Modal visible animationType="fade" onRequestClose={onFecha} statusBarTranslucent>
-      <View style={{ flex: 1, backgroundColor: "#000" }}>
-        <Pressable style={{ flex: 1 }} onPress={onFecha}>
-          <ScrollView maximumZoomScale={4} minimumZoomScale={1} contentContainerStyle={{ flexGrow: 1, justifyContent: "center" }}>
-            <Image source={{ uri: urlImagem(img.path, String(img.seed)) }} style={{ width: "100%", aspectRatio: proporcao }} resizeMode="contain"
-                   onLoad={(e) => { const { width, height } = e.nativeEvent.source; if (width && height) { setProporcao(width / height); setTam({ w: width, h: height }); } }} />
-          </ScrollView>
-        </Pressable>
+      <View style={{ flex: 1, backgroundColor: "#000", paddingTop: inset.top }}>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 8, paddingVertical: 6 }}>
+          <BotaoIcone lado={44} fundo="transparent" onPress={onFecha}><X size={22} color={c.fg} /></BotaoIcone>
+          <View style={{ flex: 1 }}>
+            <Text style={{ color: c.fg, fontSize: 14 }} numberOfLines={1}>{prompt || img.nome || "Imagem"}</Text>
+            <Text style={{ color: c.faint, fontFamily: mono, fontSize: 11.5 }} numberOfLines={1}>
+              {img.nome ? `${img.nome}${img.destino ? " · no site" : ""} · ` : ""}{img.model_name} · semente {img.seed}{w && h ? ` · ${w}×${h}` : ""}
+            </Text>
+          </View>
+        </View>
+        <View style={{ flex: 1, minHeight: 0, overflow: "hidden", alignItems: "center", justifyContent: "center" }}
+              onLayout={(e) => setArea({ w: e.nativeEvent.layout.width, h: e.nativeEvent.layout.height })}>
+          {!!area && (
+            <Image source={{ uri: urlImagem(img.path, String(img.seed)) }} style={{ width: largura, height: largura / r }} resizeMode="contain"
+                   onLoad={(e) => { const s0 = e.nativeEvent.source; if (s0.width && s0.height) setTam({ w: s0.width, h: s0.height }); }} />
+          )}
+          {fila.length > 1 && (
+            <>
+              <SetaMidia lado="esq" ativa={k > 0} onPress={() => onI(fila[k - 1])} />
+              <SetaMidia lado="dir" ativa={k >= 0 && k < fila.length - 1} onPress={() => onI(fila[k + 1])} />
+            </>
+          )}
+        </View>
         <View style={{ padding: 14, paddingBottom: inset.bottom + 14, gap: 10 }}>
-          <Text style={{ color: c.muted, fontFamily: mono, fontSize: 12, textAlign: "center" }}>
-            {img.nome ? `${img.nome}${img.destino ? " · no site" : ""} · ` : ""}{img.model_name} · semente {img.seed}
-          </Text>
-          {!!detalhe && <Text style={{ color: c.faint, fontSize: 12, textAlign: "center" }} numberOfLines={3}>{detalhe}</Text>}
-          <View style={{ flexDirection: "row", gap: 8, justifyContent: "center", flexWrap: "wrap" }}>
-            {onUsarNoSite && <Pressable style={s.btn} onPress={onUsarNoSite}><Text style={s.btnTxt}>Usar no site</Text></Pressable>}
-            <Pressable style={s.btn} disabled={baixando} onPress={async () => { setBaixando(true); await onBaixar([img.path]); setBaixando(false); }}>
-              <Text style={s.btnTxt}>{baixando ? "Salvando…" : "Salvar ou compartilhar"}</Text>
-            </Pressable>
-            <Pressable style={s.btnSec} onPress={() => onAmpliar(img, tam?.w, tam?.h)}><Text style={s.btnSecTxt}>Ampliar</Text></Pressable>
-            {onEditar && <Pressable style={s.btnSec} onPress={() => onEditar(img.path)}><Text style={s.btnSecTxt}>Editar a partir desta</Text></Pressable>}
-            {onSemente && <Pressable style={s.btnSec} onPress={() => onSemente(img.seed)}><Text style={s.btnSecTxt}>Usar esta semente</Text></Pressable>}
+          {fila.length > 1 && <Text style={{ color: c.faint, fontFamily: mono, fontSize: 11.5, textAlign: "center" }}>{k + 1} de {fila.length}</Text>}
+          {!!detalhe && <Text style={{ color: c.faint, fontSize: 12, textAlign: "center" }} numberOfLines={2}>{detalhe}</Text>}
+          {onUsarNoSite && <Botao primario altura={48} rotulo="Usar no site" icone={<Check size={16} color={c.accentFg} />} onPress={onUsarNoSite} />}
+          <Botao primario={!onUsarNoSite} altura={48} rotulo={baixando ? "Salvando…" : "Salvar ou compartilhar"} desabilitado={baixando}
+                 icone={<Download size={16} color={onUsarNoSite ? c.fg : c.accentFg} />}
+                 onPress={async () => { setBaixando(true); await onBaixar([img.path]); setBaixando(false); }} />
+          <View style={{ flexDirection: "row", gap: 6 }}>
+            <AcaoGrade rotulo="Ampliar" icone={<Expandir size={18} color={c.fg} />} onPress={() => onAmpliar(img, w, h)} />
+            {onEditar && <AcaoGrade rotulo="Editar desta" icone={<Edit size={18} color={c.fg} />} onPress={() => onEditar(img.path)} />}
+            {onPintar && <AcaoGrade rotulo="Pintar" icone={<Edit size={18} color={c.fg} />} onPress={() => onPintar(img, w, h)} />}
+            {onSemente && <AcaoGrade rotulo="Usar semente" icone={<Repetir size={18} color={c.fg} />} onPress={() => onSemente(img.seed)} />}
           </View>
         </View>
       </View>
@@ -648,15 +921,15 @@ function Visor({ img, detalhe, onFecha, onEditar, onSemente, onBaixar, onUsarNoS
   );
 }
 
-/** Método (ESRGAN que está no PC, ou Lanczos) e fator; como o PainelAmpliar do desktop. */
+/** Método (ESRGAN que está no PC, SeedVR2, redesenho ou Lanczos) e fator; como o PainelAmpliar do desktop. */
 function FolhaAmpliar({ alvo, onFecha, onAmpliar, onErro }:
   { alvo: Ampliar | null; onFecha: () => void; onAmpliar: (fator: number, modelo: string, extra?: { prompt?: string; forca?: number }) => void;
     onErro: (e: string) => void }) {
   const [cat, setCat] = useState<Ampliadores | null>(null);
   const [modelo, setModelo] = useState<string | null>(null);
-  const [fator, setFator] = useState<"2" | "4">("2");
+  const [fator, setFator] = useState(2);
   const [prompt, setPrompt] = useState(alvo?.prompt ?? ""); // a folha nasce de novo a cada imagem (key no pai)
-  const [forca, setForca] = useState<"0.3" | "0.4" | "0.5" | "0.6">("0.4");
+  const [forca, setForca] = useState(0.4);
   useEffect(() => {
     if (!alvo) return;
     api.get<Ampliadores>("/local/video/ampliadores").then(setCat).catch((e) => onErro(e.message));
@@ -665,40 +938,50 @@ function FolhaAmpliar({ alvo, onFecha, onAmpliar, onErro }:
   // o redesenho pelo sd-cli (Qwen-Image, Flux) não precisa do ComfyUI
   const metodos = (cat?.no_disco ?? []).filter((m) => (m.tipo ?? "esrgan") === "esrgan" || m.motor === "sd" || !!cat?.comfy?.instalado);
   const escolhido = modelo ?? metodos.find((m) => (m.tipo ?? "esrgan") === "esrgan")?.path ?? "";
-  const tam = (f: number) => (alvo?.w && alvo.h ? ` · ${alvo.w * f}×${alvo.h * f}` : "");
   const redesenha = metodos.find((m) => m.path === escolhido)?.tipo === "redesenhar";
+  const opcoes = [
+    ...metodos.map((m) => ({ id: m.path,
+      nome: m.tipo === "redesenhar" ? `Redesenhar com ${m.name}` : m.tipo === "seedvr2" ? "SeedVR2" : m.name,
+      dica: m.tipo === "seedvr2" ? "IA pesada: mais detalhe" : m.tipo === "redesenhar" ? "Refaz em alta resolução (muda a imagem)"
+        : m.tipo === "spandrel" ? "IA (DAT/HAT, pelo ComfyUI): mais fiel" : "IA (ESRGAN)",
+      selo: m.tipo === "seedvr2" || m.tipo === "redesenhar" ? "minutos" : "segundos" })),
+    { id: "", nome: "Lanczos", dica: "Rápido, sem IA", selo: "instantâneo" },
+  ];
   return (
     <Folha aberta={!!alvo} titulo="Ampliar imagem" onFecha={onFecha}>
       {!cat ? <ActivityIndicator color={c.muted} /> : (
         <>
           <Campo rotulo="Método" dica={metodos.length ? "IA roda na GPU do PC; Lanczos é instantâneo, sem inventar detalhe."
                                       : "Sem modelo de IA no PC: baixe um na tela Imagens do desktop (Ampliar › Baixar o que falta)."}>
-            <Lista<string> valor={escolhido} onEscolhe={setModelo} opcoes={[
-              ...metodos.map((m) => ({ id: m.path, rotulo: m.tipo === "redesenhar" ? `Redesenhar com ${m.name}` : m.name,
-                dica: m.tipo === "seedvr2" ? "IA pesada (SeedVR2): mais detalhe, leva minutos"
-                  : m.tipo === "redesenhar" ? "Refaz a imagem em alta resolução (muda a imagem), leva minutos"
-                  : m.tipo === "spandrel" ? "IA (DAT/HAT, pelo ComfyUI): mais fiel, segundos" : "IA (ESRGAN)" })),
-              { id: "", rotulo: "Lanczos", dica: "Rápido, sem IA" },
-            ]} />
+            <View style={{ gap: 8 }}>
+              {opcoes.map((o) => (
+                <Radio key={o.id} on={escolhido === o.id} onPress={() => setModelo(o.id)}
+                       direita={<Selo t={o.selo} emMono borda cor={o.selo === "minutos" ? c.warn : c.faint} />}>
+                  <Text style={{ color: c.fg, fontSize: 14.5 }} numberOfLines={1}>{o.nome}</Text>
+                  <Text style={{ color: c.muted, fontSize: 12.5 }}>{o.dica}</Text>
+                </Radio>
+              ))}
+            </View>
           </Campo>
           <Campo rotulo="Fator">
-            <Seletor<"2" | "4"> opcoes={[{ id: "2", rotulo: `2×${tam(2)}` }, { id: "4", rotulo: `4×${tam(4)}` }]} valor={fator} onMuda={setFator} />
+            <View style={{ flexDirection: "row", gap: 8 }}>
+              {[2, 4].map((f) => (
+                <CartaoOpcao key={f} altura={60} titulo={`${f}×`} on={fator === f} onPress={() => setFator(f)}
+                             sub={alvo?.w && alvo.h ? `${alvo.w * f}×${alvo.h * f}` : undefined} />
+              ))}
+            </View>
           </Campo>
           {redesenha && (
             <>
               <Campo rotulo="O que desenhar" dica="Em inglês funciona melhor.">
-                <TextInput style={[s.input, { minHeight: 70 }]} value={prompt} onChangeText={setPrompt} multiline
-                           placeholder="Descreva a imagem" placeholderTextColor={c.faint} />
+                <Area valor={prompt} onMuda={setPrompt} linhas={3} placeholder="Descreva a imagem" />
               </Campo>
-              <Campo rotulo="Força" dica="Quanto o modelo pode mudar: 0,3 é fiel e só limpa; 0,6 reimagina a textura.">
-                <Seletor<"0.3" | "0.4" | "0.5" | "0.6"> valor={forca} onMuda={setForca}
-                  opcoes={[{ id: "0.3", rotulo: "0,3 fiel" }, { id: "0.4", rotulo: "0,4" }, { id: "0.5", rotulo: "0,5" }, { id: "0.6", rotulo: "0,6 reimagina" }]} />
-              </Campo>
+              <Deslizador rotulo="Força" valor={forca} min={0.3} max={0.6} passo={0.05} casas={2} onMuda={setForca}
+                          pontas={["fiel, só limpa", "reimagina a textura"]} />
             </>
           )}
-          <Pressable style={s.btn} onPress={() => onAmpliar(Number(fator), escolhido, redesenha ? { prompt, forca: Number(forca) } : {})}>
-            <Text style={s.btnTxt}>Ampliar {fator}×</Text>
-          </Pressable>
+          <Botao primario altura={48} rotulo={`Ampliar ${fator}×`} icone={<Expandir size={16} color={c.accentFg} />}
+                 onPress={() => onAmpliar(fator, escolhido, redesenha ? { prompt, forca } : {})} />
         </>
       )}
     </Folha>

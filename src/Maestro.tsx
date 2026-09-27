@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
-import { ActivityIndicator, Modal, Pressable, ScrollView, Text, View } from "react-native";
+import { ActivityIndicator, Modal, Pressable, ScrollView, View } from "react-native";
+import { Text } from "./Texto";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { api, type Msg } from "./api";
 import Chat, { type Conv, Transcricao } from "./Chat";

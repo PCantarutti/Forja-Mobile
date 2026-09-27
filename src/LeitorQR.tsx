@@ -1,6 +1,7 @@
 import { CameraView, type BarcodeScanningResult } from "expo-camera";
 import { useEffect, useRef, useState } from "react";
-import { AccessibilityInfo, Animated, StyleSheet, Text, View } from "react-native";
+import { AccessibilityInfo, Animated, StyleSheet, View } from "react-native";
+import { Text } from "./Texto";
 import { c, s } from "./tema";
 
 type P = { x: number; y: number };

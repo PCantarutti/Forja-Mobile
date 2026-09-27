@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ActivityIndicator, FlatList, Pressable, ScrollView, Text, TextInput, View, useWindowDimensions } from "react-native";
+import { ActivityIndicator, FlatList, Pressable, ScrollView, View, useWindowDimensions } from "react-native";
+import { Text, TextInput } from "./Texto";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { api, cancelado, lerAjustes, type Msg, salvaAjustes, streamSSE } from "./api";
 import type { Conv } from "./Chat";

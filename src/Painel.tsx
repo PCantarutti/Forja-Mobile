@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { ActivityIndicator, Image, Pressable, ScrollView, Text, TextInput, View, useWindowDimensions } from "react-native";
+import { ActivityIndicator, Image, Pressable, ScrollView, View, useWindowDimensions } from "react-native";
+import { Text, TextInput } from "./Texto";
 import { api, imagemComToken, type Msg } from "./api";
 import { WebView } from "react-native-webview";
 import Site from "./Site";

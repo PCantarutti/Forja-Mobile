@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { AppState, Pressable, Text, View } from "react-native";
+import { AppState, Pressable, View } from "react-native";
+import { Text } from "./Texto";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { api, base } from "./api";
 import { c, s } from "./tema";

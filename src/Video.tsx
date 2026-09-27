@@ -1,6 +1,7 @@
 import * as DocumentPicker from "expo-document-picker";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, FlatList, Image, Modal, Pressable, ScrollView, Text, TextInput, View, useWindowDimensions } from "react-native";
+import { ActivityIndicator, FlatList, Image, Modal, Pressable, ScrollView, View, useWindowDimensions } from "react-native";
+import { Text, TextInput } from "./Texto";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import WebView from "react-native-webview";
 import { api, base, enviaArquivo, lerAjustes, type Msg, salvaAjustes, urlImagem } from "./api";

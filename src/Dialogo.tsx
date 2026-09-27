@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { Modal, Pressable, Text, View } from "react-native";
+import { Modal, Pressable, View } from "react-native";
+import { Text } from "./Texto";
 import { c, s } from "./tema";
 
 // Confirmação com o visual do Forja, no lugar do Alert do sistema (que é do Android, não do app).

@@ -67,6 +67,67 @@
           "image": "./assets/splash-vazio.png",
           "imageWidth": 1
         }
+      ],
+      [
+        "expo-font",
+        {
+          "android": {
+            "fonts": [
+              {
+                "fontFamily": "Atkinson",
+                "fontDefinitions": [
+                  {
+                    "path": "./assets/fonts/AtkinsonHyperlegibleNext_400Regular.ttf",
+                    "weight": 400
+                  },
+                  {
+                    "path": "./assets/fonts/AtkinsonHyperlegibleNext_600SemiBold.ttf",
+                    "weight": 600
+                  }
+                ]
+              },
+              {
+                "fontFamily": "JetBrains Mono",
+                "fontDefinitions": [
+                  {
+                    "path": "./assets/fonts/JetBrainsMono_400Regular.ttf",
+                    "weight": 400
+                  },
+                  {
+                    "path": "./assets/fonts/JetBrainsMono_600SemiBold.ttf",
+                    "weight": 600
+                  }
+                ]
+              },
+              {
+                "fontFamily": "IBM Plex Sans",
+                "fontDefinitions": [
+                  {
+                    "path": "./assets/fonts/IBMPlexSans_400Regular.ttf",
+                    "weight": 400
+                  },
+                  {
+                    "path": "./assets/fonts/IBMPlexSans_600SemiBold.ttf",
+                    "weight": 600
+                  }
+                ]
+              },
+              {
+                "fontFamily": "IBM Plex Mono",
+                "fontDefinitions": [
+                  {
+                    "path": "./assets/fonts/IBMPlexMono_400Regular.ttf",
+                    "weight": 400
+                  },
+                  {
+                    "path": "./assets/fonts/IBMPlexMono_600SemiBold.ttf",
+                    "weight": 600
+                  }
+                ]
+              }
+            ]
+          }
+        }
       ]
     ],
     "backgroundColor": "#171717",

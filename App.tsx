@@ -4,8 +4,8 @@ import * as Device from "expo-device";
 import * as Notifications from "expo-notifications";
 import { StatusBar } from "expo-status-bar";
 import { Component, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Animated, AppState, BackHandler, Linking, Platform, Pressable, RefreshControl, ScrollView, SectionList, Text, TextInput,
-         useWindowDimensions, View } from "react-native";
+import { Animated, AppState, BackHandler, Linking, Platform, Pressable, RefreshControl, ScrollView, SectionList, useWindowDimensions, View } from "react-native";
+import { Text, TextInput } from "./src/Texto";
 import { SafeAreaProvider, useSafeAreaInsets } from "react-native-safe-area-context";
 import { api, base, carregaPar, escolheBase, salvaPar, viaLan } from "./src/api";
 import Chat, { type Conv } from "./src/Chat";

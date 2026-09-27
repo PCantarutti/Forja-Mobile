@@ -1,5 +1,6 @@
 import { createContext, useContext } from "react";
-import { Image, Pressable, Text, View } from "react-native";
+import { Image, Pressable, View } from "react-native";
+import { Text } from "./Texto";
 import Svg, { Path, Rect, Text as SvgText } from "react-native-svg";
 import { base, comToken } from "./api";
 import { c } from "./tema";

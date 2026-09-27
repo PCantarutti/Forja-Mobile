@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { ActivityIndicator, Modal, Pressable, SectionList, Text, View } from "react-native";
+import { ActivityIndicator, Modal, Pressable, SectionList, View } from "react-native";
+import { Text } from "./Texto";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { api } from "./api";
 import { Cubo } from "./icones";

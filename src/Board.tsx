@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { Pressable, RefreshControl, ScrollView, Text, View } from "react-native";
+import { Pressable, RefreshControl, ScrollView, View } from "react-native";
+import { Text } from "./Texto";
 import { api } from "./api";
 import { pergunta } from "./Dialogo";
 import { c, mono, s } from "./tema";

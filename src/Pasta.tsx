@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { ActivityIndicator, FlatList, Modal, Pressable, Text, View } from "react-native";
+import { ActivityIndicator, FlatList, Modal, Pressable, View } from "react-native";
+import { Text } from "./Texto";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { api } from "./api";
 import { Pasta as IconePasta, Seta, Voltar } from "./icones";

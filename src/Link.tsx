@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { Linking, Modal, Pressable, Text, View } from "react-native";
+import { Linking, Modal, Pressable, View } from "react-native";
+import { Text } from "./Texto";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { api } from "./api";
 import { pergunta } from "./Dialogo";

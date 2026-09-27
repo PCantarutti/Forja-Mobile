@@ -1,5 +1,6 @@
 import { createContext, memo, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, AppState, FlatList, Image, Keyboard, Modal, useWindowDimensions, Pressable, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, AppState, FlatList, Image, Keyboard, Modal, useWindowDimensions, Pressable, View } from "react-native";
+import { Text, TextInput } from "./Texto";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as DocumentPicker from "expo-document-picker";
 import { api, type Aprovacao, base, comToken, enviaArquivo, lerAjustes, type Live, type Msg, salvaAjustes, streamRun } from "./api";

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { ActivityIndicator, Linking, Pressable, Text, useWindowDimensions, View } from "react-native";
+import { ActivityIndicator, Linking, Pressable, useWindowDimensions, View } from "react-native";
+import { Text } from "./Texto";
 import { WebView } from "react-native-webview";
 import { api } from "./api";
 import { Globo } from "./icones";

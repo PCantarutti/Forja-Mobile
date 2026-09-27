@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { AppState, Modal, Pressable, Text, View } from "react-native";
+import { AppState, Modal, Pressable, View } from "react-native";
+import { Text } from "./Texto";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { api } from "./api";
 import { Chip, Fechar } from "./icones";
