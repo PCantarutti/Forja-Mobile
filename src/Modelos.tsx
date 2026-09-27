@@ -18,7 +18,7 @@ const ultima: Record<string, { title: string; erro?: string; data: Escolha[] }[]
 
 /** Folha de modelos: `max` = 1 escolhe e fecha; > 1 marca vários (Comparar). */
 export default function Modelos({ aberto, max = 1, marcados = [], soProvedor = false, desligar, onFecha, onEscolhe }: {
-  aberto: boolean; max?: number; marcados?: Escolha[]; soProvedor?: boolean; desligar?: boolean; // desligar: 1ª linha "(desligado)"
+  aberto: boolean; max?: number; marcados?: Escolha[]; soProvedor?: boolean; desligar?: boolean | string; // desligar: 1ª linha "(desligado)" (ou o texto dado)
   onFecha: () => void; onEscolhe: (e: Escolha[]) => void;
 }) {
   const inset = useSafeAreaInsets();
@@ -62,7 +62,7 @@ export default function Modelos({ aberto, max = 1, marcados = [], soProvedor = f
             keyExtractor={chave}
             ListHeaderComponent={desligar ? (
               <Pressable onPress={() => onEscolhe([{ provider: "", model: "", nome: "" }])} style={{ padding: 12, borderRadius: 12 }}>
-                <Text style={{ color: c.muted, fontSize: 15 }}>(desligado)</Text>
+                <Text style={{ color: c.muted, fontSize: 15 }}>{typeof desligar === "string" ? desligar : "(desligado)"}</Text>
               </Pressable>
             ) : null}
             contentContainerStyle={{ paddingHorizontal: 8 }}

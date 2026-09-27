@@ -1,6 +1,6 @@
 import * as DocumentPicker from "expo-document-picker";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, FlatList, Image, Modal, Pressable, ScrollView, StatusBar, View, useWindowDimensions } from "react-native";
+import { ActivityIndicator, FlatList, Image, Linking, Modal, Pressable, ScrollView, StatusBar, View, useWindowDimensions } from "react-native";
 import { Text, TextInput } from "./Texto";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import WebView from "react-native-webview";
@@ -9,17 +9,18 @@ import type { Conv } from "./Chat";
 import { pergunta } from "./Dialogo";
 import { Check, Clock, Cube, Download, Edit, Expandir, ExternalLink, Folder, Imagem, Play, Plus, Raio, Repetir, Seta, Sliders, Square, Trash,
          Trocar, Voltar, X } from "./icones";
-import { AcaoGrade, BotaoEnviar, CampoSemente, type Destino, LinhaEstimativa, Miniatura, salva } from "./Imagens";
+import { ArquivosPC, CampoMelhorar, encaixa, Formato, modeloMelhorar, razao } from "./Formato";
+import { AcaoGrade, AMOSTRADORES, BotaoEnviar, CampoSemente, type Destino, LinhaEstimativa, Miniatura, salva } from "./Imagens";
 import Liquido from "./Liquido";
 import { restante, velocidade } from "./progresso";
 import { useTeclado } from "./teclado";
 import { c, mono, s } from "./tema";
-import { Area, Botao, BotaoIcone, Campo, CartaoOpcao, CartaoProporcao, Chip, Contador, Deslizador, Folha, LinhaAjuste, Lista, Opcao, Quadrado, Radio,
+import { Area, Botao, BotaoIcone, Campo, CartaoOpcao, Chip, Contador, Deslizador, Folha, LinhaAjuste, Lista, Opcao, Quadrado, Radio,
          Recolhivel, ResumoEstimativa, Selo, Seletor, num, toast } from "./ui";
 
 // Vídeo (Wan pelo stable-diffusion.cpp) = o motor dos lotes de imagem com conversa kind "video": mesmas rotas
 // /imagens/*, arquivos .webm. Espelha o VideoView do desktop no que cabe no celular.
-type Req = { nome?: string; modos?: string[]; multiplo?: number; resolucoes?: Record<string, [number, number]>; quadros_treino?: number };
+type Req = { nome?: string; modos?: string[]; multiplo?: number; resolucoes?: Record<string, [number, number]>; quadros_treino?: number; doc?: string };
 type ModeloVid = { path: string; name: string; size?: number; params?: Record<string, any>; req?: Req; falta?: string[]; chave?: string; dim?: number };
 type Lora = { path: string; name: string; wan?: boolean; dim?: number; passos?: number };
 type Tempo = { model: string; w: number; h: number; frames: number; passos: number; s_passo: number; s_total: number };
@@ -27,7 +28,7 @@ type Opts = Record<string, any> & { steps: number; cfg: number; width: number; h
                                     negative?: string; flow_shift?: number; high_noise_steps?: number; high_noise_cfg?: number;
                                     loras?: { path: string; peso: number }[] };
 type LocalVid = { video: Opts; video_models: ModeloVid[]; loras: Lora[]; tempos_video: Tempo[]; image_busy?: boolean; runtimes: any;
-                  gpu_video?: { nome?: string; gb?: number } };
+                  gpu_video?: { nome?: string; gb?: number }; image?: Record<string, any>; video_dir?: string };
 type Img = { path: string; seed: number; model_name?: string; status: string; progress?: number; preview?: string; com_previa?: boolean;
              restante?: number; s_passo?: number; error?: string; unidade?: string }; // unidade "quadro": ampliação
 type Tomada = { user?: Msg; msg: Msg; imgs: Img[] };
@@ -44,7 +45,6 @@ const MODOS = [
 const pronto = (i: Img) => ["pronta", "mantida"].includes(i.status);
 const pilha = { position: "absolute" as const, left: 0, right: 0, top: 0, bottom: 0, borderRadius: 14, borderWidth: 1, borderColor: c.line };
 const SEMENTES = [{ id: "incremental", rotulo: "Incremental" }, { id: "aleatoria", rotulo: "Aleatória" }, { id: "fixa", rotulo: "Fixa" }];
-const PROPORCOES = ["16:9", "9:16", "1:1"] as const;
 const REFAZIVEIS = ["interrompida", "pendente", "cancelada", "erro"];
 const ROTULO: Record<string, string> = { pendente: "na fila", gerando: "gerando", erro: "erro", cancelada: "cancelada",
   interrompida: "interrompida", descartada: "descartada", mantida: "mantida", pronta: "" };
@@ -54,18 +54,15 @@ const DO_MODELO = ["model", "seed", "offload", "flash_attn", "vae_tiling", "te_c
 
 // videoConta.ts do desktop: quadros 4k+1 (o VAE do Wan junta 4 em 1), tamanhos e durações a partir da variante.
 const quadrosDe = (seg: number, fps: number) => Math.max(1, Math.round((seg * fps) / 4)) * 4 + 1;
-function tamanhosDe(req?: Req) {
-  const mult = req?.multiplo ?? 16;
-  const encaixa = (v: number) => Math.max(mult, Math.round(v / mult) * mult);
-  return Object.entries(req?.resolucoes ?? { "480p": [832, 480] as [number, number] }).flatMap(([q, [w, h]]) => {
-    const lado = encaixa(Math.sqrt(w * h));
-    const por: Record<string, [number, number]> = { "16:9": [encaixa(w), encaixa(h)], "9:16": [encaixa(h), encaixa(w)], "1:1": [lado, lado] };
-    return PROPORCOES.map((p) => ({ id: `${p} ${q}`, w: por[p][0], h: por[p][1] }));
-  });
-}
-function duracoesDe(req: Req | undefined, fps: number) {
-  const max = Math.round(((req?.quadros_treino ?? 81) / (fps || 16)) * 2) / 2;
-  return [...new Set([1, Math.max(1, Math.round(max)) / 2, max])].filter((d) => d >= 1).sort((a, b) => a - b);
+// FORMAS_VIDEO sem as de retrato (saem do girar). Todas as qualidades aparecem; a que o modelo não treinou fica apagada.
+const FORMAS = ["16:9", "1:1", "4:3"];
+const QUALIDADES: Record<string, number> = { "480p": 480, "720p": 720, "1080p": 1080, "4K": 2160 };
+function tamanhoVideo(req: Req | undefined, f: string, q: string): [number, number] {
+  const m = req?.multiplo ?? 16, enc = (v: number) => encaixa(v, m);
+  const [w, h] = (req?.resolucoes ?? { "480p": [832, 480] })[q] ?? [(QUALIDADES[q] * 16) / 9, QUALIDADES[q]];
+  if (f === "1:1") { const l = enc(Math.sqrt(w * h)); return [l, l]; }
+  if (f === "4:3") return [enc((h * 4) / 3), enc(h)];
+  return [enc(w), enc(h)];
 }
 /** Estimativa pelo que a máquina já mediu com o mesmo modelo (expoente tirado das medições; linear com uma só). */
 function estimar(tempos: Tempo[], chave: string | undefined, o: Opts): { s: number; minimo: boolean } | null {
@@ -264,8 +261,7 @@ export default function Video({ conv, onCriada, onTurno, onBaixarModelos }:
     if (!texto) return;
     setMelhorando(true);
     try {
-      const m = await lerAjustes<{ provider: string; model: string }>("modelo", { provider: "", model: "" });
-      const d = m.model ? m : (await api.get<{ defaults: { provider: string; model: string } }>("/mobile")).defaults;
+      const d = await modeloMelhorar("video");
       if (!d.model) throw new Error("Escolha um modelo de texto no Chat antes.");
       setPrompt((await api.post<{ prompt: string }>("/imagens/prompt", { prompt: texto, provider: d.provider, model: d.model, video: true }, 180000)).prompt);
     } catch (e: any) { setErro(e.message); }
@@ -298,10 +294,11 @@ export default function Video({ conv, onCriada, onTurno, onBaixarModelos }:
   // Com uma geração rodando, a nova entra na fila do PC (um sd-cli por vez, na ordem).
   const pode = !!prompt.trim() && !!aj?.modelo && !semRuntime && refs.length >= precisa;
   const nomeModelo = modelo ? (modelo.req?.nome ?? modelo.name) : "Modelo";
-  const tamanhos = tamanhosDe(modelo?.req);
-  const tamAtual = o ? tamanhos.find((t) => t.w === o.width && t.h === o.height) : undefined;
-  const [propAtual, qAtual] = tamAtual ? tamAtual.id.split(" ") : [null, null];
-  const qualidades = Object.keys(modelo?.req?.resolucoes ?? { "480p": 1 });
+  const tamPara = (f: string, q: string) => tamanhoVideo(modelo?.req, f, q);
+  const qAtual = o ? Object.keys(QUALIDADES).find((q) => Math.min(...tamPara("16:9", q)) === Math.min(o.width, o.height)) : undefined;
+  const treino = modelo?.req?.quadros_treino ?? 81;
+  // Wan2.2 A14B: dois modelos (alto e baixo ruído), com passos e CFG próprios para o de alto ruído.
+  const a14b = !!modelo?.params?.high_noise_model || /a14b/i.test(`${modelo?.params?.variante ?? ""} ${modelo?.req?.nome ?? ""}`);
   const gpu = st?.gpu_video?.gb ?? null;
   const vram = o && modelo ? vramVideo(modelo, o) : null;
   const passa = vram != null && gpu != null && vram > gpu;
@@ -419,7 +416,7 @@ export default function Video({ conv, onCriada, onTurno, onBaixarModelos }:
               <Chip rotulo={nomeModelo} icone={<Cube size={14} color={modelo?.falta?.length ? c.warn : c.muted} />}
                     cor={modelo?.falta?.length ? c.warn : undefined} onPress={() => setFolha("modelo")} />
               {!!o && (
-                <Chip rotulo={propAtual ? `${propAtual} · ${qAtual}` : `${o.width}×${o.height}`} icone={<Sliders size={14} color={c.muted} />}
+                <Chip rotulo={`${razao(o.width, o.height).join(":")}${qAtual ? ` · ${qAtual}` : ""}`} icone={<Sliders size={14} color={c.muted} />}
                       onPress={() => setFolha("ajustes")} />
               )}
               {!!o && <Chip rotulo={`${num(seg)} s${n > 1 ? ` · ×${n}` : ""}`} icone={<Clock size={14} color={c.muted} />} onPress={() => setFolha("ajustes")} />}
@@ -485,32 +482,13 @@ export default function Video({ conv, onCriada, onTurno, onBaixarModelos }:
               <Seletor cheio opcoes={MODOS.filter((m) => modos.includes(m.id)).map((m) => ({ id: m.id, rotulo: m.rotulo }))} valor={aj.modo} onMuda={(v) => muda({ modo: v })} />
             </Campo>
           )}
-          <Campo rotulo="Tamanho" direita={
-            <View style={{ flexDirection: "row", gap: 6 }}>
-              {["480p", "720p"].map((q) => (
-                <Pressable key={q} disabled={!qualidades.includes(q)} onPress={() => {
-                  const t = tamanhos.find((x) => x.id === `${propAtual ?? "16:9"} ${q}`);
-                  if (t) mudaO({ width: t.w, height: t.h });
-                }} style={{ height: 28, paddingHorizontal: 10, borderRadius: 999, justifyContent: "center", opacity: qualidades.includes(q) ? 1 : 0.35,
-                            backgroundColor: qAtual === q ? c.accent : c.raised }}>
-                  <Text style={{ color: qAtual === q ? c.accentFg : c.muted, fontFamily: mono, fontSize: 12 }}>{q}</Text>
-                </Pressable>
-              ))}
-            </View>
-          }>
-            <View style={{ flexDirection: "row", gap: 8 }}>
-              {PROPORCOES.map((p) => {
-                const t = tamanhos.find((x) => x.id === `${p} ${qAtual ?? qualidades[0]}`);
-                return t ? <CartaoProporcao key={p} cheio rotulo={p} w={t.w} h={t.h} px={`${t.w}×${t.h}`} on={propAtual === p}
-                                            onPress={() => mudaO({ width: t.w, height: t.h })} /> : null;
-              })}
-            </View>
-          </Campo>
-          <Campo rotulo="Duração" dica={`${o.frames} quadros a ${o.fps} fps. Acima do treino do modelo (${num(Math.round(((modelo?.req?.quadros_treino ?? 81) - 1) / (o.fps || 16) * 10) / 10)} s) o Wan degrada.`}>
-            <Seletor cheio opcoes={duracoesDe(modelo?.req, o.fps).map((d) => ({ id: String(d), rotulo: `${num(d)} s` }))}
-                     valor={String(duracoesDe(modelo?.req, o.fps).find((d) => quadrosDe(d, o.fps) === o.frames) ?? "")}
-                     onMuda={(v) => mudaO({ frames: quadrosDe(Number(v), o.fps) })} />
-          </Campo>
+          <Formato formas={FORMAS} tamanhoPara={tamPara} w={o.width} h={o.height} mult={modelo?.req?.multiplo ?? 16}
+                   quals={Object.keys(QUALIDADES).map((q) => ({ id: q, off: !!modelo?.req?.resolucoes && !(q in modelo.req.resolucoes) }))}
+                   onMuda={(w, h) => mudaO({ width: w, height: h })}
+                   dicaQual="Acima do que o modelo treinou: pode sair com artefatos e demora bem mais." />
+          <Deslizador rotulo="Duração" valor={o.frames} min={quadrosDe(1, o.fps)} max={Math.max(quadrosDe((treino * 2) / (o.fps || 16), o.fps), o.frames)} passo={4}
+                      fmt={(k) => `${num(Math.round(((k - 1) / (o.fps || 16)) * 10) / 10)} s`} onMuda={(k) => mudaO({ frames: k })}
+                      dica={`${o.frames} quadros a ${o.fps} fps. Treinado com até ${num(Math.round(((treino - 1) / (o.fps || 16)) * 10) / 10)} s: acima disso o Wan degrada.`} />
           <LinhaAjuste rotulo="Variações" sub="Cada uma soma o tempo inteiro">
             <Contador valor={aj.count} min={1} max={20} onMuda={(k) => muda({ count: k })} />
           </LinhaAjuste>
@@ -521,13 +499,20 @@ export default function Video({ conv, onCriada, onTurno, onBaixarModelos }:
             <Deslizador rotulo="Passos" valor={o.steps} min={1} max={50} onMuda={(k) => mudaO({ steps: k })}
                         dica={acelerando ? "O acelerador está ligado: acima de 8 passos ele perde o sentido." : undefined} />
             <Deslizador rotulo="CFG" valor={o.cfg} min={0} max={12} passo={0.5} onMuda={(k) => mudaO({ cfg: k })} />
+            <Campo rotulo="Amostrador">
+              <Seletor rolavel opcoes={AMOSTRADORES.map((a) => ({ id: a, rotulo: a }))} valor={o.sampler ?? "euler"} onMuda={(v) => mudaO({ sampler: v })} />
+            </Campo>
             <Deslizador rotulo="Flow shift" valor={o.flow_shift ?? 0} min={0} max={12} passo={0.5} onMuda={(k) => mudaO({ flow_shift: k })}
                         fmt={(k) => (k ? num(k) : "auto")} dica="0 = automático." />
             <Deslizador rotulo="FPS" valor={o.fps} min={8} max={30} onMuda={(k) => mudaO({ fps: k, frames: quadrosDe(seg, k) })}
                         dica={`${o.frames} quadros (sempre 4k+1). Mais fps com a mesma duração pede mais quadros.`} />
-            {(o.high_noise_steps ?? 0) !== 0 && (
-              <Deslizador rotulo="Passos do HighNoise" valor={o.high_noise_steps ?? -1} min={-1} max={50} onMuda={(k) => mudaO({ high_noise_steps: k })}
-                          fmt={(k) => (k < 0 ? "auto" : String(k))} dica="-1 = o sd.cpp divide entre os dois modelos." />
+            {a14b && (
+              <>
+                <Deslizador rotulo="Passos alto ruído" valor={o.high_noise_steps ?? -1} min={-1} max={50} onMuda={(k) => mudaO({ high_noise_steps: k })}
+                            fmt={(k) => (k < 0 ? "auto" : String(k))} dica="-1 = automático: o sd.cpp divide entre os dois modelos." />
+                <Deslizador rotulo="CFG alto ruído" valor={o.high_noise_cfg ?? 0} min={0} max={12} passo={0.5} onMuda={(k) => mudaO({ high_noise_cfg: k })}
+                            fmt={(k) => (k ? num(k) : "o mesmo")} dica="0 = o mesmo CFG do modelo de baixo ruído." />
+              </>
             )}
             {!!st?.loras.filter((l) => l.wan && l.dim === modelo?.dim).length && (
               <Campo rotulo="LoRAs">
@@ -536,8 +521,14 @@ export default function Video({ conv, onCriada, onTurno, onBaixarModelos }:
                     const on = o.loras?.find((x) => mesmo(x.path, l.path));
                     const eAcel = acelArquivos.some((p) => mesmo(p, l.path));
                     return (
-                      <Opcao key={l.path} rotulo={l.name} valor={!!on} sub={[eAcel ? "acelerador" : "", on ? `peso ${num(on.peso)}` : ""].filter(Boolean).join(" · ") || undefined}
-                             onMuda={(v) => mudaO({ loras: v ? [...(o.loras ?? []), { path: l.path, peso: 1 }] : (o.loras ?? []).filter((x) => !mesmo(x.path, l.path)) })} />
+                      <View key={l.path} style={{ gap: 8 }}>
+                        <Opcao rotulo={l.name} valor={!!on} sub={[eAcel ? "acelerador" : "", l.passos ? `${l.passos} passos` : ""].filter(Boolean).join(" · ") || undefined}
+                               onMuda={(v) => mudaO({ loras: v ? [...(o.loras ?? []), { path: l.path, peso: 1 }] : (o.loras ?? []).filter((x) => !mesmo(x.path, l.path)) })} />
+                        {on && (
+                          <Deslizador rotulo="Peso" valor={on.peso} min={0} max={2} passo={0.1} casas={1}
+                                      onMuda={(k) => mudaO({ loras: (o.loras ?? []).map((x) => (mesmo(x.path, l.path) ? { ...x, peso: Math.round(k * 10) / 10 } : x)) })} />
+                        )}
+                      </View>
                     );
                   })}
                 </View>
@@ -545,7 +536,19 @@ export default function Video({ conv, onCriada, onTurno, onBaixarModelos }:
             )}
             <Campo rotulo="Sementes"><Seletor cheio opcoes={SEMENTES} valor={aj.seed_mode} onMuda={(v) => muda({ seed_mode: v })} /></Campo>
             {aj.seed_mode !== "aleatoria" && <CampoSemente valor={aj.seed} onMuda={(k) => muda({ seed: k })} />}
+            {!!modelo?.req?.doc && (
+              <Pressable onPress={() => Linking.openURL(modelo.req!.doc!)} hitSlop={6}>
+                <Text style={{ color: c.accentText, fontSize: 13 }}>Guia do sd.cpp para este modelo</Text>
+              </Pressable>
+            )}
           </Recolhivel>
+          <CampoMelhorar aba="video" />
+          <ArquivosPC pasta={st?.video_dir ?? ""} onPasta={(p) => api.put("/local/paths", { video_dir: p }).then(() => { setSt((x) => x && { ...x, video_dir: p }); toast("Pasta salva no PC."); })
+                                                               .catch((e) => toast(e.message))}
+                      dias={st?.image?.descarte_dias ?? 7} onDias={(k) => {
+                        setSt((x) => x && { ...x, image: { ...x.image, descarte_dias: k } });
+                        api.put("/local/image/defaults", { ...st?.image, descarte_dias: k }).catch((e) => toast(e.message));
+                      }} />
         </Folha>
       )}
 

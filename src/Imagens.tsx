@@ -10,7 +10,8 @@ import { api, enviaArquivo, lerAjustes, type Msg, salvaAjustes, urlImagem } from
 import type { Conv } from "./Chat";
 import { pergunta } from "./Dialogo";
 import { ArrowLeft, ArrowUp, Check, Clock, Cube, Download, Edit, Expandir, ExternalLink, Folder, Gauge, Paperclip, Refresh, Repetir, Sliders,
-         Seta, Square, Trocar, Voltar, X } from "./icones";
+         Seta, Square, Voltar, X } from "./icones";
+import { ArquivosPC, CampoMelhorar, encaixa, Formato, modeloMelhorar, razao } from "./Formato";
 import { useGestos } from "./gestos";
 import Mascara from "./Mascara";
 import Liquido from "./Liquido";
@@ -18,7 +19,7 @@ import { restante, velocidade } from "./progresso";
 import { GaleriaSite, TelaSlot, versoesPorSlot } from "./Slots";
 import { useTeclado } from "./teclado";
 import { c, mono, s } from "./tema";
-import { Area, Botao, BotaoIcone, Caixa, Campo, CartaoOpcao, CartaoProporcao, Chip, Contador, Deslizador, Folha, LinhaAjuste, Lista, Radio,
+import { Area, Botao, BotaoIcone, Caixa, Campo, CartaoOpcao, Chip, Contador, Deslizador, Folha, LinhaAjuste, Lista, Radio,
          Recolhivel, ResumoEstimativa, Selo, Seletor, num, toast } from "./ui";
 
 // LoteImagem do backend (lotes.py / types.ts do desktop).
@@ -31,10 +32,10 @@ type Origem = { message_id: number; workspace: string; projeto: string; chat: { 
                 slots: Slot[]; pendentes: Slot[]; fora_do_codigo: string[]; estilo: string; web: boolean };
 type Lote = { user?: Msg; msg: Msg; imgs: Img[] };
 type ModeloImg = { path: string; name: string; size?: number; req?: { nome?: string } | null; params?: Record<string, any> };
-type LocalImg = { image: Record<string, any>; image_models: ModeloImg[]; runtimes: any; hardware?: { vram?: number } };
+type LocalImg = { image: Record<string, any>; image_models: ModeloImg[]; runtimes: any; hardware?: { vram?: number }; image_dir?: string };
 const GB = 2 ** 30;
 type Opts = { steps: number; cfg: number; width: number; height: number; sampler: string; negative: string;
-  hires?: boolean; hires_scale?: number; hires_denoise?: number }; // alta resolução (hires fix do sd-cli), como no PC
+  hires?: boolean; hires_scale?: number; hires_denoise?: number; hires_upscaler?: string; out_dir?: string }; // alta resolução (hires fix do sd-cli), como no PC
 type Ajustes = { models: string[]; count: number; seed: number; seed_mode: string; opts: Opts };
 // Ampliar: uma imagem de um lote (mid = mensagem dele) ou uma do celular (já enviada ao PC, sem mid).
 type Ampliar = { path: string; mid?: number; w?: number; h?: number; prompt?: string }; // prompt: o que gerou a imagem
@@ -43,33 +44,21 @@ type Ampliadores = { no_disco: { path: string; name: string; tipo?: "esrgan" | "
   comfy?: { instalado: string } };
 
 // Listas do desktop (ImagensView / LocalPanel).
-const AMOSTRADORES = ["euler_a", "euler", "heun", "dpm2", "dpm++2s_a", "dpm++2m", "dpm++2mv2", "ipndm", "lcm", "ddim_trailing", "tcd",
+export const AMOSTRADORES = ["euler_a", "euler", "heun", "dpm2", "dpm++2s_a", "dpm++2m", "dpm++2mv2", "ipndm", "lcm", "ddim_trailing", "tcd",
   "res_multistep", "er_sde", "dpm++2m_sde", "lms"];
-const PROPORCOES = [{ id: "1:1", w: 1024, h: 1024 }, { id: "3:2", w: 1216, h: 832 }, { id: "2:3", w: 832, h: 1216 },
-  { id: "16:9", w: 1344, h: 768 }, { id: "9:16", w: 768, h: 1344 }];
+// Formato do desktop (FORMAS_IMAGEM): a de retrato sai do girar; o tamanho é o lado menor, em múltiplos de 64.
+const FORMAS = ["1:1", "3:2", "16:9"];
+const QUALS = ["512", "768", "1024", "1536"];
+function tamanhoImagem(f: string, q: string): [number, number] {
+  const [a, b] = f.split(":").map(Number), n = Number(q), r = a / b;
+  return r >= 1 ? [encaixa(n * r, 64), n] : [n, encaixa(n / r, 64)];
+}
 const SEMENTES = [{ id: "incremental", rotulo: "Incremental" }, { id: "aleatoria", rotulo: "Aleatória" }, { id: "fixa", rotulo: "Fixa" }];
 const PREDEFS = [{ id: "rapido", nome: "Rápido", steps: 12, cfg: 5, hires: 0, sub: "12 passos" },
   { id: "equilibrado", nome: "Equilibrado", steps: 20, cfg: 7, hires: 0, sub: "20 passos" },
   { id: "qualidade", nome: "Qualidade", steps: 30, cfg: 7, hires: 1.5, sub: "30 passos · hires" }];
 const hiresDe = (o: Opts) => (o.hires ? o.hires_scale ?? 1.5 : 0);
 const predefDe = (o: Opts) => PREDEFS.find((p) => p.steps === o.steps && p.cfg === o.cfg && p.hires === hiresDe(o));
-
-// Formato.tsx do desktop: mantém a área w*h e recalcula para a razão a:b, em múltiplos de 64.
-const snap64 = (n: number) => Math.max(64, Math.round(n / 64) * 64);
-export function tamanhoLivre(w: number, h: number, a: number, b: number) {
-  const area = w * h;
-  return { w: snap64(Math.sqrt((area * a) / b)), h: snap64(Math.sqrt((area * b) / a)) };
-}
-/** Razão simplificada de w×h (896×1216 → 3:4 … aproximada para inteiros pequenos). */
-function razao(w: number, h: number): [number, number] {
-  let melhor: [number, number] = [1, 1], erro = Infinity;
-  for (let b = 1; b <= 16; b++) {
-    const a = Math.max(1, Math.round((w / h) * b));
-    const e = Math.abs(a / b - w / h);
-    if (e < erro - 1e-9) { erro = e; melhor = [a, b]; }
-  }
-  return melhor;
-}
 
 // ponytail: fórmula provisória do handoff; trocar por tempos_imagem medidos quando o backend expuser (como tempos_video).
 const S_PASSO_PADRAO = 0.55; // s por passo a 1 MP, sem medição do modelo nesta conversa
@@ -145,6 +134,7 @@ export default function Imagens({ conv, onCriada, onTurno, onAbreChat }:
   const [slotAberto, setSlotAberto] = useState<string | null>(null); // tela de versões de um slot do site
   const [ampliar, setAmpliar] = useState<Ampliar | null>(null);
   const [pintar, setPintar] = useState<{ path: string; w: number; h: number } | null>(null); // editor de máscara aberto
+  const [esrgans, setEsrgans] = useState<Ampliadores["no_disco"]>([]); // ampliadores ESRGAN do PC para a alta resolução
   const [pintura, setPintura] = useState<{ uri: string; modo: "mascara" | "anotacao"; tracos: number; original: string } | null>(null);
   const lista = useRef<FlatList>(null);
   const inset = useSafeAreaInsets();
@@ -179,6 +169,7 @@ export default function Imagens({ conv, onCriada, onTurno, onAbreChat }:
     }).catch((e) => setErro(e.message));
   }, [carrega]);
 
+  useEffect(() => { if (folha && aj?.opts.hires) api.get<Ampliadores>("/local/video/ampliadores").then((r) => setEsrgans(r.no_disco.filter((x) => x.tipo === "esrgan"))).catch(() => {}); }, [folha, aj?.opts.hires]);
   const muda = (x: Partial<Ajustes>) => setAj((a) => { const n = { ...(a as Ajustes), ...x }; salvaAjustes("imagem", n); return n; });
   const mudaOpts = (x: Partial<Opts>) => aj && muda({ opts: { ...aj.opts, ...x } });
 
@@ -313,9 +304,7 @@ export default function Imagens({ conv, onCriada, onTurno, onAbreChat }:
     if (!texto) return;
     setMelhorando(true);
     try {
-      // Mesmo modelo de texto do chat (ajustes "modelo"), como o picker do desktop começa.
-      const m = await lerAjustes<{ provider: string; model: string }>("modelo", { provider: "", model: "" });
-      const d = m.model ? m : (await api.get<{ defaults: { provider: string; model: string } }>("/mobile")).defaults;
+      const d = await modeloMelhorar("imagem");
       if (!d.model) throw new Error("Escolha um modelo de texto no Chat antes.");
       setPrompt((await api.post<{ prompt: string }>("/imagens/prompt", { prompt: texto, provider: d.provider, model: d.model }, 180000)).prompt);
     } catch (e: any) { setErro(e.message); }
@@ -387,7 +376,9 @@ export default function Imagens({ conv, onCriada, onTurno, onAbreChat }:
   const est = aj ? estimaImagem(aj.opts, sPasso, gbModelo) : null;
   const passa = !!est && gpu != null && est.vram > gpu;
   const predef = aj ? predefDe(aj.opts) : undefined;
-  const nomeTam = (o: Opts) => PROPORCOES.find((p) => p.w === o.width && p.h === o.height)?.id ?? `${o.width}×${o.height}`;
+  const nomeTam = (o: Opts) => razao(o.width, o.height).join(":");
+  // Tamanho acima de 1,5× o nativo dos modelos marcados fica apagado (ainda clicável), como no desktop.
+  const nativo = Math.max(0, ...modelos.map((m) => Math.min(m.params?.width ?? 0, m.params?.height ?? 0)));
   const resumo = aj ? `${predef?.nome ?? "Personalizado"} · ${nomeTam(aj.opts)} · ×${aj.count}` : "Ajustes";
   const rotModelo = nomes.length > 1 ? `${nomes.length} modelos` : nomes[0] ?? "Modelo";
 
@@ -506,7 +497,9 @@ export default function Imagens({ conv, onCriada, onTurno, onAbreChat }:
               })}
             </View>
           </Campo>
-          <Proporcao o={aj.opts} onMuda={(w, h) => mudaOpts({ width: w, height: h })} />
+          <Formato formas={FORMAS} quals={QUALS.map((q) => ({ id: q, off: nativo > 0 && Number(q) > nativo * 1.5 }))} tamanhoPara={tamanhoImagem}
+                   w={aj.opts.width} h={aj.opts.height} mult={64} onMuda={(w, h) => mudaOpts({ width: w, height: h })}
+                   dicaQual="Bem acima do tamanho nativo do modelo: pesa na memória e costuma repetir elementos na imagem." />
           <LinhaAjuste rotulo="Variações" sub="Imagens por pedido">
             <Contador valor={aj.count} min={1} max={50} onMuda={(n) => muda({ count: n })} />
           </LinhaAjuste>
@@ -537,11 +530,27 @@ export default function Imagens({ conv, onCriada, onTurno, onAbreChat }:
               <Deslizador rotulo="Denoise" valor={aj.opts.hires_denoise ?? 0.45} min={0.2} max={0.7} passo={0.05} casas={2}
                           onMuda={(n) => mudaOpts({ hires_denoise: n })} pontas={["mantém e limpa", "inventa detalhe"]} />
             )}
+            {aj.opts.hires && (
+              <Campo rotulo="Ampliador">
+                <Seletor rolavel valor={aj.opts.hires_upscaler ?? local.image.hires_upscaler ?? "Lanczos"} onMuda={(v) => mudaOpts({ hires_upscaler: v })}
+                         opcoes={[{ id: "Lanczos", rotulo: "Lanczos" }, { id: "Latent", rotulo: "Latente (pede denoise alto)" },
+                                  ...esrgans.map((e) => ({ id: e.path, rotulo: e.name }))]} />
+              </Campo>
+            )}
             <Campo rotulo="Sementes">
               <Seletor cheio opcoes={SEMENTES} valor={aj.seed_mode} onMuda={(v) => muda({ seed_mode: v })} />
             </Campo>
             {aj.seed_mode !== "aleatoria" && <CampoSemente valor={aj.seed} onMuda={(n) => muda({ seed: n })} />}
           </Recolhivel>
+          <CampoMelhorar aba="imagem" />
+          <ArquivosPC pasta={aj.opts.out_dir ?? local.image.out_dir ?? ""} padrao={local.image_dir} onPasta={(p) => mudaOpts({ out_dir: p })}
+                      dias={local.image.descarte_dias ?? 7} onDias={(n) => {
+                        setLocal({ ...local, image: { ...local.image, descarte_dias: n } });
+                        api.put("/local/image/defaults", { ...local.image, descarte_dias: n }).catch((e) => toast(e.message));
+                      }} />
+          <Botao rotulo="Salvar como padrão" icone={<Check size={14} color={c.fg} />} onPress={() =>
+            api.put("/local/image/defaults", { ...local.image, ...aj.opts, model: aj.models[0] }).then(() => toast("Salvo como padrão no PC."))
+              .catch((e) => toast(e.message))} />
         </Folha>
       )}
 
@@ -634,45 +643,6 @@ export function CampoSemente({ valor, onMuda }: { valor: number; onMuda: (n: num
                    value={String(valor)} onChangeText={(t) => { const n = Number(t.replace(/\D/g, "")); if (!Number.isNaN(n)) onMuda(Math.min(n, 2147483647)); }} />
         <Botao rotulo="Sortear" altura={44} icone={<Refresh size={14} color={c.fg} />} onPress={() => onMuda(Math.floor(Math.random() * 2147483647))} />
       </View>
-    </Campo>
-  );
-}
-
-/** Proporção em cartões (rolável), com o Livre: razão a:b que mantém a área, em múltiplos de 64. */
-function Proporcao({ o, onMuda }: { o: Opts; onMuda: (w: number, h: number) => void }) {
-  const fixa = PROPORCOES.find((p) => p.w === o.width && p.h === o.height);
-  const [livre, setLivre] = useState(!fixa);
-  const [a, b] = razao(o.width, o.height);
-  const [ta, setTa] = useState(String(a));
-  const [tb, setTb] = useState(String(b));
-  useEffect(() => { setTa(String(a)); setTb(String(b)); }, [a, b]);
-  const aplica = (x: string, y: string) => {
-    const na = Math.min(64, Math.max(1, Number(x) || 1)), nb = Math.min(64, Math.max(1, Number(y) || 1));
-    const t = tamanhoLivre(o.width, o.height, na, nb);
-    onMuda(t.w, t.h);
-  };
-  const campo = { width: 44, height: 38, borderRadius: 9, borderWidth: 1, borderColor: c.line, backgroundColor: c.bg, color: c.fg,
-                  fontFamily: mono, fontSize: 14, textAlign: "center" as const, padding: 0 };
-  return (
-    <Campo rotulo="Proporção">
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginHorizontal: -16 }} contentContainerStyle={{ paddingHorizontal: 16, gap: 8 }}>
-        {PROPORCOES.map((p) => (
-          <CartaoProporcao key={p.id} rotulo={p.id} w={p.w} h={p.h} px={`${p.w}×${p.h}`} on={!livre && fixa?.id === p.id}
-                           onPress={() => { setLivre(false); onMuda(p.w, p.h); }} />
-        ))}
-        <CartaoProporcao rotulo={livre ? `${a}:${b}` : "Livre"} w={o.width} h={o.height} px={livre ? `${o.width}×${o.height}` : "a:b"} on={livre}
-                         onPress={() => setLivre(true)} />
-      </ScrollView>
-      {livre && (
-        <View style={{ flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: c.surface, borderRadius: 12, paddingVertical: 10, paddingHorizontal: 12 }}>
-          <Text style={s.muted}>Proporção</Text>
-          <TextInput style={campo} keyboardType="number-pad" value={ta} onChangeText={setTa} onEndEditing={() => aplica(ta, tb)} />
-          <Text style={{ color: c.faint }}>:</Text>
-          <TextInput style={campo} keyboardType="number-pad" value={tb} onChangeText={setTb} onEndEditing={() => aplica(ta, tb)} />
-          <BotaoIcone lado={38} onPress={() => onMuda(o.height, o.width)}><Trocar size={16} color={c.fg} /></BotaoIcone>
-          <Text style={{ flex: 1, textAlign: "right", color: c.faint, fontFamily: mono, fontSize: 11 }}>{o.width}×{o.height} px · múltiplos de 64</Text>
-        </View>
-      )}
     </Campo>
   );
 }
