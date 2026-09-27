@@ -3,7 +3,7 @@ import { Directory, File, Paths } from "expo-file-system";
 import { Asset, requestPermissionsAsync } from "expo-media-library";
 import * as Sharing from "expo-sharing";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, FlatList, Image, Modal, Pressable, ScrollView, View, useWindowDimensions } from "react-native";
+import { ActivityIndicator, FlatList, Image, Modal, Pressable, ScrollView, StatusBar, View, useWindowDimensions } from "react-native";
 import { Text, TextInput } from "./Texto";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { api, enviaArquivo, lerAjustes, type Msg, salvaAjustes, urlImagem } from "./api";
@@ -11,6 +11,7 @@ import type { Conv } from "./Chat";
 import { pergunta } from "./Dialogo";
 import { ArrowLeft, ArrowUp, Check, Clock, Cube, Download, Edit, Expandir, ExternalLink, Folder, Gauge, Paperclip, Refresh, Repetir, Sliders,
          Seta, Square, Trocar, Voltar, X } from "./icones";
+import { useGestos } from "./gestos";
 import Mascara from "./Mascara";
 import Liquido from "./Liquido";
 import { restante, velocidade } from "./progresso";
@@ -870,17 +871,22 @@ function Visor({ img, fila, onI, prompt, detalhe, onFecha, onEditar, onPintar, o
   const [baixando, setBaixando] = useState(false);
   const [tam, setTam] = useState<{ w: number; h: number } | null>(null);
   const [area, setArea] = useState<{ w: number; h: number } | null>(null);
-  useEffect(() => setTam(null), [img?.path]);
-  if (!img) return null;
-  const k = fila.findIndex((x) => x.path === img.path);
-  const w = tam?.w ?? img.w ?? img.width, h = tam?.h ?? img.h ?? img.height;
+  const { width: larg, height: alt } = useWindowDimensions();
+  const deitado = larg > alt; // celular girado: só a imagem, as setas e o X, na tela inteira
+  const w = tam?.w ?? img?.w ?? img?.width, h = tam?.h ?? img?.h ?? img?.height;
   const r = w && h ? w / h : 1;
   // contida nos dois eixos: retrato ganha faixas pretas nas laterais e não empurra os botões
   const largura = area ? Math.min(area.w, area.h * r) : 0;
+  // pinça (1 a 4×), dois dedos movem, e com zoom um dedo também arrasta
+  const { vista, zoom, caixa, mede, handlers } = useGestos({ w: largura, h: largura / r });
+  useEffect(() => { setTam(null); zoom(1); }, [img?.path]);
+  if (!img) return null;
+  const k = fila.findIndex((x) => x.path === img.path);
   return (
-    <Modal visible animationType="fade" onRequestClose={onFecha} statusBarTranslucent>
-      <View style={{ flex: 1, backgroundColor: "#000", paddingTop: inset.top }}>
-        <View style={{ flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 8, paddingVertical: 6 }}>
+    <Modal visible animationType="fade" onRequestClose={onFecha} statusBarTranslucent supportedOrientations={["portrait", "landscape"]}>
+      <StatusBar hidden={deitado} />
+      <View style={{ flex: 1, backgroundColor: "#000", paddingTop: deitado ? 0 : inset.top }}>
+        {!deitado && <View style={{ flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 8, paddingVertical: 6 }}>
           <BotaoIcone lado={44} fundo="transparent" onPress={onFecha}><X size={22} color={c.fg} /></BotaoIcone>
           <View style={{ flex: 1 }}>
             <Text style={{ color: c.fg, fontSize: 14 }} numberOfLines={1}>{prompt || img.nome || "Imagem"}</Text>
@@ -888,12 +894,15 @@ function Visor({ img, fila, onI, prompt, detalhe, onFecha, onEditar, onPintar, o
               {img.nome ? `${img.nome}${img.destino ? " · no site" : ""} · ` : ""}{img.model_name} · semente {img.seed}{w && h ? ` · ${w}×${h}` : ""}
             </Text>
           </View>
-        </View>
+        </View>}
         <View style={{ flex: 1, minHeight: 0, overflow: "hidden", alignItems: "center", justifyContent: "center" }}
               onLayout={(e) => setArea({ w: e.nativeEvent.layout.width, h: e.nativeEvent.layout.height })}>
           {!!area && (
-            <Image source={{ uri: urlImagem(img.path, String(img.seed)) }} style={{ width: largura, height: largura / r }} resizeMode="contain"
-                   onLoad={(e) => { const s0 = e.nativeEvent.source; if (s0.width && s0.height) setTam({ w: s0.width, h: s0.height }); }} />
+            <View ref={caixa} collapsable={false} onLayout={mede} style={{ width: largura, height: largura / r }} {...handlers}>
+              <Image source={{ uri: urlImagem(img.path, String(img.seed)) }} resizeMode="contain"
+                     style={{ width: largura, height: largura / r, transform: [{ translateX: vista.x }, { translateY: vista.y }, { scale: vista.z }] }}
+                     onLoad={(e) => { const s0 = e.nativeEvent.source; if (s0.width && s0.height) setTam({ w: s0.width, h: s0.height }); }} />
+            </View>
           )}
           {fila.length > 1 && (
             <>
@@ -901,8 +910,17 @@ function Visor({ img, fila, onI, prompt, detalhe, onFecha, onEditar, onPintar, o
               <SetaMidia lado="dir" ativa={k >= 0 && k < fila.length - 1} onPress={() => onI(fila[k + 1])} />
             </>
           )}
+          {deitado && (
+            <>
+              <BotaoIcone lado={44} fundo="#0009" onPress={onFecha} estilo={{ position: "absolute", top: 12, left: 12 + inset.left }}><X size={22} color="#fff" /></BotaoIcone>
+              {fila.length > 1 && (
+                <Text style={{ position: "absolute", bottom: 12, color: "#fff", fontFamily: mono, fontSize: 11.5, backgroundColor: "#0009", borderRadius: 999,
+                               paddingHorizontal: 10, paddingVertical: 4, overflow: "hidden" }}>{k + 1} de {fila.length}</Text>
+              )}
+            </>
+          )}
         </View>
-        <View style={{ padding: 14, paddingBottom: inset.bottom + 14, gap: 10 }}>
+        {!deitado && <View style={{ padding: 14, paddingBottom: inset.bottom + 14, gap: 10 }}>
           {fila.length > 1 && <Text style={{ color: c.faint, fontFamily: mono, fontSize: 11.5, textAlign: "center" }}>{k + 1} de {fila.length}</Text>}
           {!!detalhe && <Text style={{ color: c.faint, fontSize: 12, textAlign: "center" }} numberOfLines={2}>{detalhe}</Text>}
           {onUsarNoSite && <Botao primario altura={48} rotulo="Usar no site" icone={<Check size={16} color={c.accentFg} />} onPress={onUsarNoSite} />}
@@ -915,7 +933,7 @@ function Visor({ img, fila, onI, prompt, detalhe, onFecha, onEditar, onPintar, o
             {onPintar && <AcaoGrade rotulo="Pintar" icone={<Edit size={18} color={c.fg} />} onPress={() => onPintar(img, w, h)} />}
             {onSemente && <AcaoGrade rotulo="Usar semente" icone={<Repetir size={18} color={c.fg} />} onPress={() => onSemente(img.seed)} />}
           </View>
-        </View>
+        </View>}
       </View>
     </Modal>
   );

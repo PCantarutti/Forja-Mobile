@@ -1,6 +1,6 @@
 import * as DocumentPicker from "expo-document-picker";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, FlatList, Image, Modal, Pressable, ScrollView, View, useWindowDimensions } from "react-native";
+import { ActivityIndicator, FlatList, Image, Modal, Pressable, ScrollView, StatusBar, View, useWindowDimensions } from "react-native";
 import { Text, TextInput } from "./Texto";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import WebView from "react-native-webview";
@@ -683,6 +683,8 @@ function Foco({ fila, i, onI, onFecha, onAcao, onFechaEAcao, onSemente, onErro }
   const [tempoV, setTempoV] = useState({ t: 0, d: 0 });
   const [larguraBarra, setLarguraBarra] = useState(0);
   const web = useRef<WebView>(null);
+  const { width: larg, height: alt } = useWindowDimensions();
+  const deitado = larg > alt; // celular girado: só o vídeo, a barra de tempo e o X
   useEffect(() => {
     if (!ampliar || amp) return;
     api.get<{ no_disco: { path: string; name: string; tipo?: string }[]; ffmpeg: string }>("/local/video/ampliadores", 20000)
@@ -713,9 +715,15 @@ function Foco({ fila, i, onI, onFecha, onAcao, onFechaEAcao, onSemente, onErro }
     );
   };
   return (
-    <Modal visible animationType="slide" onRequestClose={onFecha} statusBarTranslucent>
-      <View style={{ flex: 1, backgroundColor: "#000", paddingTop: inset.top }}>
-        <View style={{ flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 8, paddingVertical: 6 }}>
+    <Modal visible animationType="slide" onRequestClose={onFecha} statusBarTranslucent supportedOrientations={["portrait", "landscape"]}>
+      <StatusBar hidden={deitado} />
+      <View style={{ flex: 1, backgroundColor: "#000", paddingTop: deitado ? 0 : inset.top }}>
+        {deitado && (
+          <BotaoIcone lado={44} fundo="#0009" onPress={onFecha} estilo={{ position: "absolute", top: 12, left: 12 + inset.left, zIndex: 2 }}>
+            <X size={22} color="#fff" />
+          </BotaoIcone>
+        )}
+        {!deitado && <View style={{ flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 8, paddingVertical: 6 }}>
           <BotaoIcone lado={44} fundo="transparent" onPress={onFecha}><X size={22} color={c.fg} /></BotaoIcone>
           <View style={{ flex: 1 }}>
             <Text style={{ color: c.fg, fontSize: 14 }} numberOfLines={1}>{t.user?.content ?? "Vídeo"}</Text>
@@ -724,12 +732,12 @@ function Foco({ fila, i, onI, onFecha, onAcao, onFechaEAcao, onSemente, onErro }
             </Text>
           </View>
           {mantido && <Text style={{ color: c.ok, fontSize: 12, fontWeight: "600", marginRight: 8 }}>mantido</Text>}
-        </View>
+        </View>}
         {/* contido nos dois eixos (object-fit contain no <video>): um 9:16 não empurra o rodapé */}
         <View style={{ flex: 1, minHeight: 0 }}>
           <VideoWeb key={img.path} path={img.path} web={web} onTempo={(tt, d) => setTempoV({ t: tt, d })} />
         </View>
-        <View style={{ paddingHorizontal: 14, paddingTop: 10, gap: 6 }}>
+        <View style={{ paddingHorizontal: 14 + (deitado ? inset.left : 0), paddingTop: 10, paddingBottom: deitado ? 10 : 0, gap: 6 }}>
           <Pressable onLayout={(e) => setLarguraBarra(e.nativeEvent.layout.width)} hitSlop={10}
                      onPress={(e) => { if (tempoV.d && larguraBarra) web.current?.injectJavaScript(`v.currentTime=${(e.nativeEvent.locationX / larguraBarra) * tempoV.d};true;`); }}
                      style={{ height: 3, borderRadius: 2, backgroundColor: c.line }}>
@@ -740,7 +748,7 @@ function Foco({ fila, i, onI, onFecha, onAcao, onFechaEAcao, onSemente, onErro }
             <Text style={{ color: c.faint, fontFamily: mono, fontSize: 11.5 }}>{relogio(tempoV.d)}</Text>
           </View>
         </View>
-        <View style={{ padding: 12, paddingBottom: inset.bottom + 12, gap: 10 }}>
+        {!deitado && <View style={{ padding: 12, paddingBottom: inset.bottom + 12, gap: 10 }}>
           {/* Triagem: os dois botões grandes, e as setas para andar sem decidir. */}
           <View style={{ flexDirection: "row", gap: 8, alignItems: "center" }}>
             {seta(-1)}
@@ -763,7 +771,7 @@ function Foco({ fila, i, onI, onFecha, onAcao, onFechaEAcao, onSemente, onErro }
             {!o.ampliacao && <AcaoGrade altura={60} rotulo="Ampliar" icone={<Expandir size={18} color={c.fg} />} onPress={() => setAmpliar(true)} />}
             <AcaoGrade altura={60} rotulo="Refazer semente" icone={<Repetir size={18} color={c.fg} />} onPress={() => onSemente(img.seed)} />
           </View>
-        </View>
+        </View>}
         <Folha aberta={salvar} titulo="Salvar vídeo" onFecha={() => setSalvar(false)}>
           <Lista<Destino> valor={"" as Destino} onEscolhe={paraDestino} opcoes={[
             { id: "galeria", rotulo: "Galeria", dica: "Junto dos vídeos da câmera (DCIM)", icone: <Download size={17} color={c.muted} /> },

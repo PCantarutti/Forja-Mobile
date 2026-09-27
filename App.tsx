@@ -360,23 +360,26 @@ function Gaveta({ aberta, fecha, pagina, convs, atual, erro, onPagina, onConv, o
           </View>
           <Pressable onPress={onNova} hitSlop={8}><Novo size={22} /></Pressable>
         </View>
-        {PAGINAS.map(({ id, rotulo, Icone }) => (
-          <Pressable key={id} onPress={() => onPagina(id)}
-                     style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", gap: 14, marginHorizontal: 8,
-                       paddingHorizontal: 12, paddingVertical: 12, borderRadius: 12,
-                       backgroundColor: pagina === id ? c.raised : pressed ? c.surface : "transparent" })}>
-            <Icone size={21} color={pagina === id ? c.fg : c.muted} />
-            <Text style={{ color: c.fg, fontSize: 16, fontWeight: pagina === id ? "600" : "400" }}>{rotulo}</Text>
-          </Pressable>
-        ))}
-        <View style={{ height: 1, backgroundColor: c.line, marginHorizontal: 20, marginVertical: 10 }} />
         <SectionList
           sections={secoes}
           keyExtractor={(cv) => String(cv.id)}
           stickySectionHeadersEnabled={false}
           keyboardShouldPersistTaps="handled"
           contentContainerStyle={{ paddingHorizontal: 8, paddingBottom: 12 }}
-          ListHeaderComponent={erro ? <Text style={[s.muted, { color: c.red, padding: 12 }]}>{erro}</Text> : null}
+          // As páginas rolam junto com as conversas: deitado, a lista não cabe embaixo delas.
+          ListHeaderComponent={<View style={{ marginHorizontal: -8 }}>
+            {PAGINAS.map(({ id, rotulo, Icone }) => (
+              <Pressable key={id} onPress={() => onPagina(id)}
+                         style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", gap: 14, marginHorizontal: 8,
+                           paddingHorizontal: 12, paddingVertical: 12, borderRadius: 12,
+                           backgroundColor: pagina === id ? c.raised : pressed ? c.surface : "transparent" })}>
+                <Icone size={21} color={pagina === id ? c.fg : c.muted} />
+                <Text style={{ color: c.fg, fontSize: 16, fontWeight: pagina === id ? "600" : "400" }}>{rotulo}</Text>
+              </Pressable>
+            ))}
+            <View style={{ height: 1, backgroundColor: c.line, marginHorizontal: 20, marginVertical: 10 }} />
+            {!!erro && <Text style={[s.muted, { color: c.red, padding: 12 }]}>{erro}</Text>}
+          </View>}
           ListEmptyComponent={!erro ? <Text style={[s.faint, { padding: 12 }]}>{q ? "Nada encontrado." : "Nenhuma conversa ainda."}</Text> : null}
           renderSectionHeader={({ section }) =>
             kindPag === "agent" || kindPag === "maestro" ? (

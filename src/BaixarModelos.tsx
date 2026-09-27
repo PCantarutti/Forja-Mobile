@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { ActivityIndicator, Modal, Pressable, ScrollView, View } from "react-native";
+import { ActivityIndicator, Keyboard, Modal, Pressable, ScrollView, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { api } from "./api";
 import { ArrowLeft, Check, Download, Film, Search } from "./icones";
@@ -262,7 +262,7 @@ function Hf({ hw, destino, onBaixou, onErro }: { hw?: Hw; destino: string; onBai
           })}
         </View>
       ) : (lista ?? []).map((m) => (
-        <Pressable key={m.id} onPress={() => setSel(m.id)} style={({ pressed }) => ({ backgroundColor: pressed ? c.raised : c.surface, borderRadius: 12, padding: 12, gap: 6 })}>
+        <Pressable key={m.id} onPress={() => { Keyboard.dismiss(); setSel(m.id); }} style={({ pressed }) => ({ backgroundColor: pressed ? c.raised : c.surface, borderRadius: 12, padding: 12, gap: 6 })}>
           <Text style={{ color: c.fg, fontFamily: mono, fontSize: 13 }}>{m.id.split("").join("​")}</Text>
           <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
             <View style={{ flex: 1, flexDirection: "row", flexWrap: "wrap", gap: 5 }}>
