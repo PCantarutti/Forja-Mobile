@@ -1,4 +1,7 @@
-import { ScrollView, View } from "react-native";
+import * as Clipboard from "expo-clipboard";
+import { Pressable, ScrollView, View } from "react-native";
+import { Copy } from "./icones";
+import { toast } from "./ui";
 import { Text } from "./Texto";
 import { abreLink } from "./Link";
 import { c, mono } from "./tema";
@@ -58,9 +61,24 @@ function realce(texto: string, lang: string) {
   return partes;
 }
 
-export function Codigo({ texto, max, lang = "" }: { texto: string; max?: number; lang?: string }) {
+export function Codigo({ texto, max, lang = "", cabecalho }: { texto: string; max?: number; lang?: string; cabecalho?: boolean }) {
   // Texto enorme (log, arquivo inteiro) sai sem realce: milhares de <Text> travam a lista.
   const conteudo = texto.length > 20000 ? texto : realce(texto, lang.toLowerCase());
+  // Bloco da resposta: cabeçalho com a linguagem e o Copiar (o de ferramenta, no detalhe, fica sem).
+  if (cabecalho)
+    return (
+      <View style={{ backgroundColor: c.code, borderColor: c.line, borderWidth: 1, borderRadius: 12, overflow: "hidden" }}>
+        <View style={{ flexDirection: "row", alignItems: "center", paddingHorizontal: 12, paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: c.line }}>
+          <Text style={{ color: c.faint, fontFamily: mono, fontSize: 11.5, flex: 1 }}>{lang || "código"}</Text>
+          <Pressable hitSlop={10} onPress={() => Clipboard.setStringAsync(texto).then(() => toast("Código copiado."))}>
+            <Copy size={13} color={c.muted} />
+          </Pressable>
+        </View>
+        <ScrollView horizontal style={{ maxHeight: max }} contentContainerStyle={{ padding: 12 }}>
+          <Text style={{ fontFamily: mono, fontSize: 12.5, lineHeight: 19, color: c.fg }} selectable>{conteudo}</Text>
+        </ScrollView>
+      </View>
+    );
   return (
     <ScrollView horizontal style={{ backgroundColor: c.code, borderColor: c.line, borderWidth: 1, borderRadius: 12, maxHeight: max }}
                 contentContainerStyle={{ padding: 12 }}>
@@ -109,7 +127,7 @@ export default function Markdown({ texto }: { texto: string }) {
       const lang = l.trim().slice(3).trim();
       const cod: string[] = [];
       while (++i < linhas.length && !linhas[i].trimStart().startsWith("```")) cod.push(linhas[i]);
-      blocos.push(<Codigo key={blocos.length} texto={cod.join("\n")} lang={lang} />);
+      blocos.push(<Codigo key={blocos.length} texto={cod.join("\n")} lang={lang} cabecalho />);
       continue;
     }
     const h = l.match(/^(#{1,4})\s+(.*)/);

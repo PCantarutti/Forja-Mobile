@@ -5,9 +5,11 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as DocumentPicker from "expo-document-picker";
 import { api, type Aprovacao, base, comToken, enviaArquivo, lerAjustes, type Live, type Msg, salvaAjustes, streamRun } from "./api";
 import { pergunta as dialogo } from "./Dialogo";
+import { toast } from "./ui";
 import { type Anexo, CartaoAnexo, ConvDoAnexo, ehImagem } from "./Anexo";
 import { limpaConversa } from "./revoga";
 import Entrada, { type Ajustes, type Contexto } from "./Entrada";
+import { FaixaObjetivo, FaixaTarefas, type Tarefa } from "./Faixas";
 import { Abaixo, Cerebro, Cubo, Enviar, Escudo, Globo, Imagem, Lapis, Parar, Pasta as IconePasta, Relogio, Seta } from "./icones";
 import Markdown, { Codigo } from "./Markdown";
 import { LogoMarca } from "./Logo";
@@ -178,6 +180,7 @@ export default function Chat({ conv, kind, workspace, onCriada, onTelaCheia, pas
   const [ajustes, setAjustes] = useState<Ajustes>({ provider: "", model: "", effort: "medio" });
   const [ctxVivo, setCtxVivo] = useState<{ usado: number; max: number; partes?: Contexto["partes"] } | null>(null); // evento `context` do run
   const [anexos, setAnexos] = useState<Anexo[]>([]);
+  const [tarefasVivas, setTarefasVivas] = useState<Tarefa[] | null>(null); // evento `tasks` do run (update_tasks)
   const [enviando, setEnviando] = useState(false);
   const abort = useRef<AbortController | null>(null);
   const lista = useRef<FlatList>(null);
@@ -208,7 +211,8 @@ export default function Chat({ conv, kind, workspace, onCriada, onTelaCheia, pas
     setRunId(id);
     try {
       await streamRun(id, cursor, (ev) => {
-        if (ev.type === "context") setCtxVivo({ usado: ev.used ?? 0, max: ev.max ?? 0, partes: ev.partes ?? null });
+        if (ev.type === "tasks") setTarefasVivas(ev.tasks ?? []);
+        else if (ev.type === "context") setCtxVivo({ usado: ev.used ?? 0, max: ev.max ?? 0, partes: ev.partes ?? null });
         else if (ev.type === "assistant_start") zeraDraft();
         else if (ev.type === "token") token(ev.text);
         else if (ev.type === "assistant_end") { zeraDraft(); setMsgs((m) => [...m, ev.message]); }
@@ -395,6 +399,7 @@ export default function Chat({ conv, kind, workspace, onCriada, onTelaCheia, pas
         const st = await api.get<any>("/settings");
         const atuais: string[] = st[campo] ?? [];
         if (!atuais.includes(a.suggest)) await api.put("/settings", { [campo]: [...atuais, a.suggest] });
+        toast(`Regra ${a.suggest} salva em Configurações › Permissões.`);
       }
       await api.post(`/runs/${runId}/approve`, { call_id: a.call.id, ...body });
       setAprov((x) => x.filter((y) => y.call.id !== a.call.id));
@@ -403,6 +408,12 @@ export default function Chat({ conv, kind, workspace, onCriada, onTelaCheia, pas
     }
   }
 
+  // Tarefas: as do run ao vivo; sem run, as do último evento de tarefas da conversa (TodosBar do desktop).
+  const tarefas = useMemo<Tarefa[]>(() => {
+    if (runId && tarefasVivas) return tarefasVivas;
+    const ev = [...msgs].reverse().find((m) => m.role === "event" && m.meta?.kind === "tasks");
+    return (ev?.meta?.tasks as Tarefa[]) ?? [];
+  }, [msgs, runId, tarefasVivas]);
   const resultados = useMemo(() => new Map(msgs.filter((m) => m.role === "tool").map((m) => [m.tool_call_id, m])), [msgs]);
   const segs = useMemo(() => segmentos(msgs), [msgs]);
   // Últimos N blocos desenhados de uma vez: com virtualização a lista só media ~10 itens e o "ir para o fim"
@@ -422,7 +433,8 @@ export default function Chat({ conv, kind, workspace, onCriada, onTelaCheia, pas
     const comCache = todas.filter((x) => x.cached != null);
     const promptCache = comCache.reduce((n, x) => n + (x.prompt_tokens ?? 0), 0);
     return {
-      usado, max, partes: ctxVivo?.partes ?? ult?.partes ?? null, saida: ult?.tokens ?? null,
+      usado, max, partes: ctxVivo?.partes ?? ult?.partes ?? null, saida: ult?.tokens ?? null, ttft: ult?.ttft ?? null,
+      compartilhado: ult?.compartilhado ?? null,
       media: comTps.length ? comTps.reduce((n, x) => n + x.tps, 0) / comTps.length : null,
       sessao: { turnos: msgs.filter((m) => m.role === "user").length, passos: todas.length,
         tokens: todas.reduce((n, x) => n + (x.prompt_tokens ?? 0) + (x.tokens ?? 0), 0),
@@ -546,7 +558,9 @@ export default function Chat({ conv, kind, workspace, onCriada, onTelaCheia, pas
           <Abaixo size={18} />
         </Pressable>
       )}
-      <Entrada kind={kind} conv={convId} teclado={teclado > 0} rodando={!!runId} perm={perm} onPerm={trocaPerm}
+      <Entrada acima={kind !== "chat" && convId != null ? (
+                 <><FaixaObjetivo conv={convId} recarga={runId} /><FaixaTarefas tarefas={tarefas} /></>
+               ) : null} kind={kind} conv={convId} teclado={teclado > 0} rodando={!!runId} perm={perm} onPerm={trocaPerm}
                autonomo={autonomo} onAutonomo={kind !== "chat" && convId != null ? mudaAutonomo : undefined}
                onEnvia={(t) => {
                  // Recusa antes de limpar o campo: sem modelo ou sem pasta, o texto digitado não se perde.
@@ -657,9 +671,13 @@ function Evento({ m }: { m: Msg }) {
       <View style={{ borderColor: c.line, borderWidth: 1, borderRadius: 16, backgroundColor: c.surface, padding: 12, gap: 4 }}>
         <Text style={s.secao}>Tarefas</Text>
         {(m.meta?.tasks ?? []).map((t: any, i: number) => (
-          <Text key={i} style={[s.muted, t.status === "completed" && { textDecorationLine: "line-through", color: c.faint }]}>
-            {t.status === "completed" ? "✓" : t.status === "in_progress" ? "›" : "○"} {t.content ?? t.title ?? texto(t)}
-          </Text>
+          <View key={i} style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+            <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: ["done", "completed"].includes(t.status) ? c.ok
+              : ["doing", "in_progress"].includes(t.status) ? c.info : c.faint }} />
+            <Text style={[s.muted, { flex: 1 }, ["done", "completed"].includes(t.status) && { textDecorationLine: "line-through", color: c.faint }]}>
+              {t.text ?? t.content ?? t.title ?? texto(t)}
+            </Text>
+          </View>
         ))}
       </View>
     );
@@ -706,12 +724,12 @@ function LinhaStats({ s: st }: { s: Stats }) {
           <Cubo size={13} color={c.muted} /><Text style={[s.muted, { fontSize: 12 }]} numberOfLines={1}>{st.model}</Text>
         </View>
       )}
-      <Text style={[s.muted, { fontSize: 12 }]}>{st.estimated ? "~" : ""}{(st.tokens ?? 0).toLocaleString("pt-BR")} tokens</Text>
+      <Text style={[s.muted, { fontSize: 12, fontFamily: mono }]}>{st.estimated ? "~" : ""}{(st.tokens ?? 0).toLocaleString("pt-BR")} tokens</Text>
       <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
         <Relogio size={13} color={c.muted} />
-        <Text style={[s.muted, { fontSize: 12 }]}>{seg < 60 ? `${seg.toFixed(1)}s` : `${Math.floor(seg / 60)}m${Math.round(seg % 60)}s`}</Text>
+        <Text style={[s.muted, { fontSize: 12, fontFamily: mono }]}>{seg < 60 ? `${seg.toFixed(1)}s` : `${Math.floor(seg / 60)}m${Math.round(seg % 60)}s`}</Text>
       </View>
-      {st.tps != null && <Text style={[s.muted, { fontSize: 12 }]}>{st.tps.toFixed(1)} t/s</Text>}
+      {st.tps != null && <Text style={[s.muted, { fontSize: 12, fontFamily: mono }]}>{st.tps.toFixed(2).replace(".", ",")} t/s</Text>}
     </View>
   );
 }
@@ -830,7 +848,7 @@ function Preview({ a }: { a: Aprovacao }) {
         {p.kind === "diff" ? (
           (p.text ?? "").split("\n").slice(0, 60).map((l, i) => (
             <Text key={i} style={{ fontFamily: mono, fontSize: 12, lineHeight: 18,
-              color: l.startsWith("+") ? c.green : l.startsWith("-") ? c.red : l.startsWith("@@") ? c.sky : c.muted }}>{l}</Text>
+              color: l.startsWith("+") ? c.diffAdd : l.startsWith("-") ? c.diffDel : l.startsWith("@@") ? c.info : c.muted }}>{l}</Text>
           ))
         ) : (
           <Text style={{ fontFamily: mono, fontSize: 12.5, lineHeight: 19, color: c.fg }} numberOfLines={14} selectable>
@@ -853,13 +871,13 @@ function CardAprovacao({ a, onDecide }: { a: Aprovacao; onDecide: (a: Aprovacao,
   const resumo = texto(a.call.arguments?.command ?? a.call.arguments?.path ?? "");
 
   return (
-    <View style={{ borderColor: c.amberLine, borderWidth: 1, borderRadius: 18, backgroundColor: c.bg, overflow: "hidden", opacity: enviado ? 0.5 : 1 }}>
+    <View style={{ borderColor: "rgba(242,161,74,0.45)", borderWidth: 1, borderRadius: 18, backgroundColor: c.bg, overflow: "hidden", opacity: enviado ? 0.5 : 1 }}>
       <View style={{ paddingHorizontal: 14, paddingVertical: 11, borderBottomColor: c.line, borderBottomWidth: 1, gap: 3 }}>
         <Text numberOfLines={1} style={{ fontFamily: mono, fontSize: 13.5, color: c.fg }}>
           <Text style={{ fontWeight: "700" }}>{plano ? "Plano" : pergunta ? "Pergunta" : nome}</Text>
           {!plano && !pergunta && <Text style={{ color: c.faint }}> {resumo}</Text>}
         </Text>
-        <Text style={{ color: c.amber, fontSize: 12 }}>● {pergunta ? "aguardando resposta" : "aguardando aprovação"}</Text>
+        <Text style={{ color: c.warn, fontSize: 12 }}>● {pergunta ? "aguardando resposta" : "aguardando aprovação"}</Text>
       </View>
       <View style={{ padding: 14, gap: 12 }}>
         {pergunta ? (
@@ -878,7 +896,7 @@ function CardAprovacao({ a, onDecide }: { a: Aprovacao; onDecide: (a: Aprovacao,
               </Pressable>
               {!!a.suggest && !plano && (
                 <Pressable disabled={enviado} style={[s.btnSec, { flexDirection: "row", gap: 6 }]} onPress={() => vai({ approved: true }, true)}>
-                  <Escudo size={15} /><Text style={s.btnSecTxt}>Sempre</Text>
+                  <Escudo size={15} color={c.fg} /><Text style={s.btnSecTxt}>Sempre</Text>
                   <Text style={{ fontFamily: mono, fontSize: 12, color: c.muted }}>{a.suggest}</Text>
                 </Pressable>
               )}
@@ -923,8 +941,8 @@ function Perguntas({ a, enviado, onResponde }: { a: Aprovacao; enviado: boolean;
             const on = resp[i].includes(o.label);
             return (
               <Pressable key={o.label} onPress={() => escolhe(i, o.label, q.multi_select)}
-                         style={{ borderColor: on ? c.fg : c.line, borderWidth: 1, borderRadius: 12, padding: 11,
-                                  backgroundColor: on ? c.raised : "transparent" }}>
+                         style={{ borderColor: on ? c.accentLine : c.line, borderWidth: 1, borderRadius: 12, padding: 11,
+                                  backgroundColor: on ? c.accentSoft : "transparent" }}>
                 <Text style={s.txt}>{o.label}</Text>
                 {!!o.description && <Text style={s.muted}>{o.description}</Text>}
               </Pressable>
