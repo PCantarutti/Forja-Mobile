@@ -458,8 +458,8 @@ export function Toasts() {
 }
 
 /** Campo de texto multilinha no padrão das folhas (raio 12). */
-export const Area = ({ valor, onMuda, placeholder, linhas = 2, emMono }:
-  { valor: string; onMuda: (t: string) => void; placeholder?: string; linhas?: number; emMono?: boolean }) => (
-  <TextInput style={[s.input, { minHeight: 20 * linhas + 18, textAlignVertical: "top", fontFamily: emMono ? mono : undefined, fontSize: emMono ? 13 : 15 }]}
+export const Area = ({ valor, onMuda, placeholder, linhas = 2, emMono, fixa }:
+  { valor: string; onMuda: (t: string) => void; placeholder?: string; linhas?: number; emMono?: boolean; fixa?: boolean }) => (
+  <TextInput style={[s.input, { minHeight: 20 * linhas + 18, maxHeight: fixa ? 20 * linhas + 18 : undefined, textAlignVertical: "top", fontFamily: emMono ? mono : undefined, fontSize: emMono ? 13 : 15 }]}
              value={valor} onChangeText={onMuda} multiline placeholder={placeholder} placeholderTextColor={c.faint} />
 );

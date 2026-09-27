@@ -74,7 +74,7 @@ function Tipo({ tipo }: { tipo: string }) {
 }
 const SeloB = ({ t, cor = c.faint, fundo = c.raised, emMono }: { t: string; cor?: string; fundo?: string; emMono?: boolean }) => (
   <Text style={{ color: cor, backgroundColor: fundo, fontSize: 11, fontFamily: emMono ? mono : undefined, borderRadius: 5, paddingHorizontal: 6,
-                 paddingVertical: 2, overflow: "hidden" }}>{t}</Text>
+                 paddingVertical: 2, overflow: "hidden" }} numberOfLines={1}>{t}</Text>
 );
 
 /** Card que a IA criou (board_card) no fim da resposta dela, como no desktop (CardNoChat). Tocar abre o board nele. */
@@ -368,8 +368,9 @@ function CardBoard({ i, onAbre, onMais, onAceitar, onRejeitar, onIniciar, onApro
           <Text style={{ color: c.muted, fontFamily: mono, fontSize: 11.5, flex: 1 }} numberOfLines={1}>{ondeDe(ev)}</Text>
         </View>
       )}
-      <View style={{ flexDirection: "row", alignItems: "center", gap: 5 }}>
-        <View style={{ flex: 1, flexDirection: "row", flexWrap: "wrap", gap: 5 }}>
+      {/* selos e ações quebram de linha juntos: sem espaço, as ações descem, e o selo não se parte em dois */}
+      <View style={{ flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: 5 }}>
+        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 5, flexShrink: 1 }}>
           {!!NOME_ORIGEM[i.origem] && i.origem !== "manual" && <SeloB t={NOME_ORIGEM[i.origem]} />}
           {v === "ok" && <SeloB t="verify passou" cor={c.ok} fundo={c.okSoft} />}
           {v === "falhou" && <SeloB t="verify falhou" cor={c.err} fundo={c.errSoft} />}
@@ -377,15 +378,19 @@ function CardBoard({ i, onAbre, onMais, onAceitar, onRejeitar, onIniciar, onApro
           {i.status === "andamento" && <SeloB t="rodando" cor={c.info} />}
           {i.sumiu && <SeloB t="resolvido?" cor={c.ok} fundo={c.okSoft} />}
         </View>
-        {i.status === "novo" && (
-          <>
-            <Botao primario altura={32} rotulo="Aceitar" icone={<Check size={13} color={c.accentFg} />} onPress={onAceitar} />
-            <Botao altura={32} rotulo="Rejeitar" icone={<X size={13} color={c.fg} />} onPress={onRejeitar} />
-          </>
-        )}
-        {i.status === "backlog" && <Botao primario altura={32} rotulo="Iniciar" icone={<Play size={11} color={c.accentFg} />} onPress={onIniciar} />}
-        {i.status === "revisao" && <Botao primario altura={32} rotulo="Aprovar" icone={<Check size={13} color={c.accentFg} />} onPress={onAprovar} />}
-        <BotaoIcone lado={32} fundo="transparent" borda={c.line} onPress={onMais}><More size={15} color={c.muted} /></BotaoIcone>
+        <View style={{ flex: 1 }} />
+        {/* as ações quebram de linha juntas, nunca o "…" sozinho */}
+        <View style={{ flexDirection: "row", gap: 5, marginLeft: "auto" }}>
+          {i.status === "novo" && (
+            <>
+              <Botao primario altura={32} rotulo="Aceitar" icone={<Check size={13} color={c.accentFg} />} onPress={onAceitar} />
+              <Botao altura={32} rotulo="Rejeitar" icone={<X size={13} color={c.fg} />} onPress={onRejeitar} />
+            </>
+          )}
+          {i.status === "backlog" && <Botao primario altura={32} rotulo="Iniciar" icone={<Play size={11} color={c.accentFg} />} onPress={onIniciar} />}
+          {i.status === "revisao" && <Botao primario altura={32} rotulo="Aprovar" icone={<Check size={13} color={c.accentFg} />} onPress={onAprovar} />}
+          <BotaoIcone lado={32} fundo="transparent" borda={c.line} onPress={onMais}><More size={15} color={c.muted} /></BotaoIcone>
+        </View>
       </View>
     </Pressable>
   );

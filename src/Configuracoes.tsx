@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { ActivityIndicator, BackHandler, Modal, Pressable, ScrollView, View } from "react-native";
+import { ActivityIndicator, BackHandler, Modal, Pressable, ScrollView, Switch, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { api } from "./api";
 import { ArrowLeft, Brain, Cpu, Cube, Download, Eye, Laptop, Pulso, Seta, Shield, Split, Terminal, Trash, Wrench } from "./icones";
@@ -362,10 +362,15 @@ function AbaFerramentas({ cfg, salva, onErro }: { cfg: Cfg; salva: (p: Partial<C
           {lista!.map((t) => (
             <View key={t.name} style={{ flexDirection: "row", gap: 10, alignItems: "flex-start", backgroundColor: c.surface, borderRadius: 12, padding: 12 }}>
               <View style={{ paddingTop: 3 }}><Wrench size={14} color={c.faint} /></View>
-              <View style={{ flex: 1 }}>
-                <Opcao rotulo={t.name} valor={!off.has(t.name)} sub={t.always_ask ? "sempre pergunta" : undefined} dica={t.description}
-                       onMuda={(v) => salva({ disabled_tools: v ? cfg.disabled_tools.filter((x) => x !== t.name) : [...cfg.disabled_tools, t.name] })} />
-              </View>
+              <Pressable style={{ flex: 1, gap: 3 }} onPress={() => salva({ disabled_tools: off.has(t.name) ? cfg.disabled_tools.filter((x) => x !== t.name) : [...cfg.disabled_tools, t.name] })}>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                  <Text style={{ color: c.fg, fontFamily: mono, fontSize: 13.5 }}>{t.name}</Text>
+                  {t.always_ask && <Text style={{ color: c.amber, fontSize: 10.5, backgroundColor: c.raised, borderRadius: 5, paddingHorizontal: 6, paddingVertical: 1, overflow: "hidden" }}>sempre pergunta</Text>}
+                </View>
+                {!!t.description && <Text style={[s.faint, { fontSize: 12.5, lineHeight: 18 }]} numberOfLines={3}>{t.description}</Text>}
+              </Pressable>
+              <Switch value={!off.has(t.name)} trackColor={{ true: c.accent, false: c.lineStrong }} thumbColor={off.has(t.name) ? c.muted : "#ffffff"}
+                      onValueChange={(v) => salva({ disabled_tools: v ? cfg.disabled_tools.filter((x) => x !== t.name) : [...cfg.disabled_tools, t.name] })} />
             </View>
           ))}
         </View>
@@ -503,7 +508,7 @@ function AbaMemoria({ cfg, salva, onErro }: { cfg: Cfg; salva: (p: Partial<Cfg>)
                dica={`O ${cfg.project_memory_file || "FORJA.md"} da pasta vai no prompt de toda conversa ali.`} />
         {proj == null ? <ActivityIndicator color={c.muted} /> : (
           <>
-            <Area valor={proj} onMuda={setProj} linhas={7} emMono placeholder={cfg.project_memory_file || "FORJA.md"} />
+            <Area valor={proj} onMuda={setProj} linhas={7} emMono fixa placeholder={cfg.project_memory_file || "FORJA.md"} />
             <Botao primario altura={44} rotulo="Salvar no projeto" onPress={() => api.put("/memory/project", { content: proj }).then(() => toast("Salvo no projeto.")).catch((e) => onErro(e.message))} />
           </>
         )}
