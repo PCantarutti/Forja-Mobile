@@ -3,7 +3,7 @@ import { Directory, File, Paths } from "expo-file-system";
 import { Asset, requestPermissionsAsync } from "expo-media-library";
 import * as Sharing from "expo-sharing";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, FlatList, Image, Modal, Pressable, ScrollView, StatusBar, View, useWindowDimensions } from "react-native";
+import { ActivityIndicator, FlatList, Image, Keyboard, Modal, Pressable, ScrollView, StatusBar, View, useWindowDimensions } from "react-native";
 import { Text, TextInput } from "./Texto";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { api, enviaArquivo, lerAjustes, type Msg, salvaAjustes, urlImagem } from "./api";
@@ -618,8 +618,9 @@ export function LinhaEstimativa({ tempo, vram, passa, onPress }: { tempo: string
 
 /** Enviar: círculo de 36 no acento; desabilitado em raised com o ícone apagado. */
 export function BotaoEnviar({ pode, onPress }: { pode: boolean; onPress: () => void }) {
+  // Enviar fecha o teclado em todas as telas (Chat, Agente, Maestro, Imagens, Vídeo, Comparar, Pesquisa).
   return (
-    <Pressable onPress={onPress} disabled={!pode} style={{ width: 36, height: 36, borderRadius: 18, alignItems: "center", justifyContent: "center",
+    <Pressable onPress={() => { Keyboard.dismiss(); onPress(); }} disabled={!pode} style={{ width: 36, height: 36, borderRadius: 18, alignItems: "center", justifyContent: "center",
                                                            backgroundColor: pode ? c.accent : c.raised }}>
       <ArrowUp size={18} color={pode ? c.accentFg : c.faint} />
     </Pressable>
@@ -676,7 +677,7 @@ function FolhaPintura({ p, count, onGerar }: { p: { uri: string; modo: "mascara"
       <Area valor={t} onMuda={setT} linhas={3}
             placeholder={p.modo === "mascara" ? "ex.: replace with a steel anvil, same lighting" : "ex.: remove the watch in the red circle"} />
       <Botao primario altura={48} rotulo={count === 1 ? "Gerar 1 versão" : `Gerar ${count} versões`} icone={<ArrowUp size={16} color={c.accentFg} />} desabilitado={!t.trim()}
-             onPress={() => onGerar(t.trim())} />
+             onPress={() => { Keyboard.dismiss(); onGerar(t.trim()); }} />
     </>
   );
 }

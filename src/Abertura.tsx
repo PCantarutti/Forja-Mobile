@@ -115,17 +115,18 @@ export default function Abertura({ onFim }: { onFim: () => void }) {
 }
 
 // Abertura no primeiro envio da tela vazia (AberturaSobreposta do desktop): só a marca, 25% mais rápida; a
-// logo da saudação cresce e desce ao centro da conversa enquanto toca. Camada sem ponteiro: a conversa já
+// logo da saudação cresce e vai ao centro da tela enquanto toca. Camada sem ponteiro: a conversa já
 // aparece por baixo e o envio não espera nada.
 const VEL = 1.25, DUR_MARCA = 2.6;
-const CRESCE = 2; // o desktop cresce 1,3× uma logo de 160 px; a do celular tem 56, então cresce mais
-/** Logo (x, y, w, h) e centro da área (cx, cy), nas coordenadas do pai da camada. */
+const LARGURA = 0.6; // a logo termina com 60% do lado menor da tela (a do desktop só cresce 1,3×, mas lá ela já tem 160 px)
+/** Logo (x, y, w, h) e centro da tela (cx, cy), nas coordenadas do pai da camada. */
 export type Voo = { x: number; y: number; w: number; h: number; cx: number; cy: number };
 
 export function AberturaSobreposta({ voo, cor, onFim }: { voo: Voo; cor: string; onFim: () => void }) {
   const [t, setT] = useState(0);
   const voa = useState(() => new Animated.Value(0))[0];
   const saida = useState(() => new Animated.Value(1))[0];
+  const { width, height } = useWindowDimensions();
   useEffect(() => {
     let cancela = () => {};
     AccessibilityInfo.isReduceMotionEnabled().then((reduz) => {
@@ -137,13 +138,13 @@ export function AberturaSobreposta({ voo, cor, onFim }: { voo: Voo; cor: string;
     return () => cancela();
   }, []);
   // Desenha no tamanho final (vetor nítido) e começa encolhido sobre a logo da saudação.
-  const L = voo.w * CRESCE, k = L / 802, H = 718 * k;
+  const L = Math.min(width, height) * LARGURA, k = L / 802, H = 718 * k;
   const lx = voo.x + voo.w / 2, ly = voo.y + voo.h / 2;
   return (
     <Animated.View pointerEvents="none" style={{ position: "absolute", left: lx - L / 2, top: ly - H / 2, width: L, height: H, opacity: saida,
       transform: [{ translateX: voa.interpolate({ inputRange: [0, 1], outputRange: [0, voo.cx - lx] }) },
                   { translateY: voa.interpolate({ inputRange: [0, 1], outputRange: [0, voo.cy - ly] }) },
-                  { scale: voa.interpolate({ inputRange: [0, 1], outputRange: [1 / CRESCE, 1] }) }] }}>
+                  { scale: voa.interpolate({ inputRange: [0, 1], outputRange: [voo.w / L, 1] }) }] }}>
       {/* o martelo erguido passa do topo do logo: a área do desenho começa em y=-240 */}
       <View style={{ position: "absolute", left: (150 - 228.5) * k, top: (-240 - 137.5) * k }}>
         <Svg width={960 * k} height={1100 * k} viewBox="150 -240 960 1100"><Cena t={t} cor={cor} id="voo" /></Svg>

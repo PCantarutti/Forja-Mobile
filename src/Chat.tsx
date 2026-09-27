@@ -1,5 +1,5 @@
 import { createContext, memo, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, AppState, FlatList, Image, Keyboard, Modal, useWindowDimensions, Pressable, View } from "react-native";
+import { ActivityIndicator, AppState, Dimensions, FlatList, Image, Keyboard, Modal, useWindowDimensions, Pressable, View } from "react-native";
 import { Text, TextInput } from "./Texto";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as DocumentPicker from "expo-document-picker";
@@ -340,11 +340,13 @@ export default function Chat({ conv, kind, workspace, onCriada, onTelaCheia, pas
   // porque no envio ela some da lista antes de uma medição assíncrona voltar.
   const raiz = useRef<View>(null);
   const logoSaudacao = useRef<View>(null);
-  const posLogo = useRef<Omit<Voo, "cy"> | null>(null);
-  const alturaLista = useRef(0);
+  const posLogo = useRef<Voo | null>(null);
   const [voo, setVoo] = useState<Voo | null>(null);
   const medeLogo = () => logoSaudacao.current?.measureInWindow((x, y, w, h) =>
-    raiz.current?.measureInWindow((rx, ry, rw) => { posLogo.current = { x: x - rx, y: y - ry, w, h, cx: rw / 2 }; }));
+    raiz.current?.measureInWindow((rx, ry) => {
+      const tela = Dimensions.get("window");
+      posLogo.current = { x: x - rx, y: y - ry, w, h, cx: tela.width / 2 - rx, cy: tela.height / 2 - ry };
+    }));
 
   async function envia(content: string) {
     try {
@@ -352,7 +354,7 @@ export default function Chat({ conv, kind, workspace, onCriada, onTelaCheia, pas
       if (!ajustes.model) throw new Error("Escolha um modelo no botão de modelo, embaixo da caixa.");
       if (semPasta) throw new Error("Escolha uma pasta de trabalho antes de enviar (toque em \"Escolher pasta\").");
       noFim.current = true;
-      if (!msgs.length && !draft && posLogo.current) setVoo({ ...posLogo.current, cy: alturaLista.current / 2 });
+      if (!msgs.length && !draft && posLogo.current) setVoo(posLogo.current);
       setMsgs((m) => [...m, { id: -Date.now(), role: "user", content, meta: anexos.length ? { attachments: anexos } : undefined }]);
       const id = idNovo.current ?? (await garanteConv());
       const vai = anexos;
@@ -520,7 +522,7 @@ export default function Chat({ conv, kind, workspace, onCriada, onTelaCheia, pas
         // No 1º desenho a lista ainda não mediu a própria altura e o scrollToEnd não faz nada: repete no
         // onLayout e no quadro seguinte.
         onContentSizeChange={() => noFim.current && requestAnimationFrame(() => lista.current?.scrollToEnd({ animated: false }))}
-        onLayout={(e) => { alturaLista.current = e.nativeEvent.layout.height; if (noFim.current) requestAnimationFrame(() => lista.current?.scrollToEnd({ animated: false })); }}
+        onLayout={() => noFim.current && requestAnimationFrame(() => lista.current?.scrollToEnd({ animated: false }))}
         onScrollBeginDrag={() => { arrastando.current = true; }}
         onMomentumScrollEnd={() => { arrastando.current = false; }}
         onScroll={({ nativeEvent: e }) => {
