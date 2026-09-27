@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { memo, useRef, useState } from "react";
 import { Image, Modal, Pressable, ScrollView, View, useWindowDimensions } from "react-native";
 import { useGestos } from "./gestos";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -53,22 +53,32 @@ function Editor({ alvo, modelo, onFecha, onPronta }: {
 
   const salvaEstado = (t: Traco[]) => setPilha((p) => [...p.slice(-19), t]);
   // Um dedo desenha (ponto já na camada sem zoom → px da original); pinça e dois dedos ficam com o useGestos.
-  const traco = useRef<{ t: Traco | null; pts: string[] }>({ t: null, pts: [] });
-  const px = (v: number) => Math.round(v * escala);
+  const traco = useRef<{ t: Traco | null; pts: { x: number; y: number }[]; quadro: number | null }>({ t: null, pts: [], quadro: null });
+  const px = (v: number) => Math.round(v * escala * 10) / 10;
+  // Um redesenho por quadro, não por evento de toque: o Android manda bem mais movimentos que a tela mostra.
+  const agenda = () => {
+    if (traco.current.quadro != null) return;
+    traco.current.quadro = requestAnimationFrame(() => {
+      traco.current.quadro = null;
+      const t = traco.current.t;
+      if (t) setAtual({ ...t, d: suave(traco.current.pts) });
+    });
+  };
   const { vista, zoom: mudaZoom, caixa, mede, handlers } = useGestos({ w: dw, h: dh }, {
     inicio: (x, y) => {
-      traco.current.pts = [`M${px(x)} ${px(y)}`, `L${px(x) + 0.1} ${px(y)}`];
-      traco.current.t = { d: traco.current.pts.join(""), largura: pincel, cor: modo === "mascara" ? "#fff" : cor, borracha };
+      traco.current.pts = [{ x: px(x), y: px(y) }];
+      traco.current.t = { d: suave(traco.current.pts), largura: pincel, cor: modo === "mascara" ? "#fff" : cor, borracha };
       setAtual(traco.current.t);
     },
     move: (x, y) => {
       if (!traco.current.t) return;
-      traco.current.pts.push(`L${px(x)} ${px(y)}`);
-      traco.current.t = { ...traco.current.t, d: traco.current.pts.join("") };
-      setAtual(traco.current.t);
+      const ult = traco.current.pts[traco.current.pts.length - 1];
+      if (Math.hypot(px(x) - ult.x, px(y) - ult.y) < 1) return; // ponto repetido só engorda o path
+      traco.current.pts.push({ x: px(x), y: px(y) });
+      agenda();
     },
     fim: () => {
-      const t = traco.current.t;
+      const t = traco.current.t && { ...traco.current.t, d: suave(traco.current.pts) };
       traco.current.t = null;
       setAtual(null);
       if (t) setTracos((ts) => { salvaEstado(ts); return [...ts, t]; });
@@ -77,28 +87,18 @@ function Editor({ alvo, modelo, onFecha, onPronta }: {
   });
 
   const pintados = tracos.filter((t) => !t.borracha).length;
-  const todos = atual ? [...tracos, atual] : tracos;
+  // Os traços prontos não mudam enquanto se desenha: camada memorizada. O atual vai numa camada própria por cima
+  // (a borracha em andamento precisa da máscara, então nesse caso entra junto dos prontos).
+  const prontos = atual?.borracha ? [...tracos, atual] : tracos;
+  const corDe = (t: Traco, branco: boolean) => (branco ? "#fff" : t.cor);
   const camada = (fundoPreto: boolean, id: string) => (
-    <Svg width="100%" height="100%" viewBox={`0 0 ${alvo.w} ${alvo.h}`} style={{ position: "absolute" }}>
-      <Defs>
-        {/* borracha = preto na máscara da camada: apaga o que estiver por baixo, de qualquer cor */}
-        <Mask id={id} maskUnits="userSpaceOnUse" x={0} y={0} width={alvo.w} height={alvo.h}>
-          <Rect x={0} y={0} width={alvo.w} height={alvo.h} fill="#fff" />
-          {todos.map((t, i) => t.borracha &&
-            <Path key={i} d={t.d} stroke="#000" strokeWidth={t.largura} strokeLinecap="round" strokeLinejoin="round" fill="none" />)}
-        </Mask>
-      </Defs>
-      {fundoPreto && <Rect x={0} y={0} width={alvo.w} height={alvo.h} fill="#000" />}
-      <G mask={`url(#${id})`}>
-        {todos.map((t, i) => !t.borracha &&
-          <Path key={i} d={t.d} stroke={modo === "mascara" || fundoPreto ? "#fff" : t.cor} strokeWidth={t.largura} strokeLinecap="round"
-                strokeLinejoin="round" fill="none" />)}
-      </G>
-    </Svg>
+    <CamadaPronta tracos={fundoPreto ? tracos : prontos} w={alvo.w} h={alvo.h} id={id} fundoPreto={fundoPreto} branco={modo === "mascara" || fundoPreto} />
   );
 
   async function usar() {
     setGerando(true);
+    // a camada de exportação só existe agora: espera ela (e a imagem, na anotação) aparecer antes de capturar
+    await new Promise((ok) => setTimeout(ok, 250));
     try {
       const uri = await captureRef(exporta, { format: "png", result: "tmpfile", width: alvo.w, height: alvo.h });
       onPronta(uri, modo, pintados);
@@ -153,6 +153,11 @@ function Editor({ alvo, modelo, onFecha, onPronta }: {
           <Image source={{ uri: urlImagem(alvo.path) }} style={{ width: dw, height: dh }} resizeMode="contain" />
           <View style={{ position: "absolute", left: 0, top: 0, width: dw, height: dh, opacity: modo === "mascara" ? 0.55 : 1 }}>
             {camada(false, "tela")}
+            {!!atual && !atual.borracha && (
+              <Svg width="100%" height="100%" viewBox={`0 0 ${alvo.w} ${alvo.h}`} style={{ position: "absolute" }}>
+                <Path d={atual.d} stroke={corDe(atual, modo === "mascara")} strokeWidth={atual.largura} strokeLinecap="round" strokeLinejoin="round" fill="none" />
+              </Svg>
+            )}
           </View>
         </View>
       </View>
@@ -223,10 +228,47 @@ function Editor({ alvo, modelo, onFecha, onPronta }: {
         </View>
       )}
       {/* Camada de exportação fora da tela: o captureRef a redimensiona para o tamanho da original. */}
-      <View ref={exporta} collapsable={false} style={{ position: "absolute", left: -10000, top: 0, width: dw, height: dh, backgroundColor: "#000" }}>
-        {modo === "anotacao" && <Image source={{ uri: urlImagem(alvo.path) }} style={{ width: dw, height: dh }} resizeMode="stretch" />}
-        {camada(modo === "mascara", "exporta")}
-      </View>
+      {gerando && (
+        <View ref={exporta} collapsable={false} style={{ position: "absolute", left: -10000, top: 0, width: dw, height: dh, backgroundColor: "#000" }}>
+          {modo === "anotacao" && <Image source={{ uri: urlImagem(alvo.path) }} style={{ width: dw, height: dh }} resizeMode="stretch" />}
+          {camada(modo === "mascara", "exporta")}
+        </View>
+      )}
     </Modal>
   );
 }
+
+/** Path suave pelos pontos: curva quadrática até o meio de cada par, com o ponto como controle (sem as arestas das retas). */
+export function suave(p: { x: number; y: number }[]): string {
+  if (!p.length) return "";
+  if (p.length === 1) return `M${p[0].x} ${p[0].y}L${p[0].x + 0.1} ${p[0].y}`;
+  let d = `M${p[0].x} ${p[0].y}`;
+  for (let i = 1; i < p.length - 1; i++) {
+    const mx = (p[i].x + p[i + 1].x) / 2, my = (p[i].y + p[i + 1].y) / 2;
+    d += `Q${p[i].x} ${p[i].y} ${mx} ${my}`;
+  }
+  const u = p[p.length - 1];
+  return d + `L${u.x} ${u.y}`;
+}
+
+/** Os traços prontos (com a borracha como máscara). Memorizada: só redesenha quando a lista muda. */
+const CamadaPronta = memo(function CamadaPronta({ tracos, w, h, id, fundoPreto, branco }:
+  { tracos: Traco[]; w: number; h: number; id: string; fundoPreto: boolean; branco: boolean }) {
+  return (
+    <Svg width="100%" height="100%" viewBox={`0 0 ${w} ${h}`} style={{ position: "absolute" }}>
+      <Defs>
+        {/* borracha = preto na máscara da camada: apaga o que estiver por baixo, de qualquer cor */}
+        <Mask id={id} maskUnits="userSpaceOnUse" x={0} y={0} width={w} height={h}>
+          <Rect x={0} y={0} width={w} height={h} fill="#fff" />
+          {tracos.map((t, i) => t.borracha &&
+            <Path key={i} d={t.d} stroke="#000" strokeWidth={t.largura} strokeLinecap="round" strokeLinejoin="round" fill="none" />)}
+        </Mask>
+      </Defs>
+      {fundoPreto && <Rect x={0} y={0} width={w} height={h} fill="#000" />}
+      <G mask={`url(#${id})`}>
+        {tracos.map((t, i) => !t.borracha &&
+          <Path key={i} d={t.d} stroke={branco ? "#fff" : t.cor} strokeWidth={t.largura} strokeLinecap="round" strokeLinejoin="round" fill="none" />)}
+      </G>
+    </Svg>
+  );
+});

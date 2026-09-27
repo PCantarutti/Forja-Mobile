@@ -13,7 +13,7 @@ export function useGestos(tam: { w: number; h: number }, umDedo?: UmDedo | ((v: 
   const caixa = useRef<View>(null); // a camada SEM transformação, onde o zoom é aplicado por dentro
   const st = useRef({ vista, tam, umDedo, origem: { x: 0, y: 0 }, pinca: null as null | { d: number; mx: number; my: number; v: Vista },
                       arrasto: null as null | { px: number; py: number; v: Vista }, dedo: false, pincou: false,
-                      espera: null as null | { t0: number; pts: { x: number; y: number }[] } });
+                      espera: null as null | { t0: number; pts: { x: number; y: number }[] }, fimPinca: 0 });
   // O traço só começa depois de ESPERA ms com um dedo só: o segundo dedo de uma pinça chega um instante depois
   // do primeiro, e sem isso ficava um ponto pintado onde a pinça começou.
   const ESPERA = 90;
@@ -47,8 +47,9 @@ export function useGestos(tam: { w: number; h: number }, umDedo?: UmDedo | ((v: 
     onPanResponderGrant: (e: GestureResponderEvent) => {
       mede();
       const { pageX, pageY } = e.nativeEvent;
-      st.current.pincou = false;
-      if (quem()) st.current.espera = { t0: Date.now(), pts: [local(pageX, pageY)] };
+      // Dedos saindo da pinça em tempos diferentes: o que sobra vira um toque novo. Até 300 ms depois, não pinta.
+      st.current.pincou = Date.now() - st.current.fimPinca < 300;
+      if (quem() && !st.current.pincou) st.current.espera = { t0: Date.now(), pts: [local(pageX, pageY)] };
       else st.current.arrasto = { px: pageX, py: pageY, v: st.current.vista };
     },
     onPanResponderMove: (e: GestureResponderEvent) => {
@@ -85,10 +86,12 @@ export function useGestos(tam: { w: number; h: number }, umDedo?: UmDedo | ((v: 
       if (st.current.dedo && !st.current.pincou) { const p = local(e.nativeEvent.pageX, e.nativeEvent.pageY); u?.move(p.x, p.y); } // o ponto onde o dedo saiu
       if (esp && u) { u.inicio(esp.pts[0].x, esp.pts[0].y); esp.pts.slice(1).forEach((p) => u.move(p.x, p.y)); u.fim(); } // toque rápido: um ponto
       else if (st.current.dedo) u?.fim();
+      if (st.current.pincou) st.current.fimPinca = Date.now();
       st.current.dedo = false; st.current.pinca = null; st.current.arrasto = null; st.current.espera = null; st.current.pincou = false;
     },
     onPanResponderTerminate: () => {
       if (st.current.dedo) { const u = quem(); (u?.cancela ?? u?.fim)?.(); }
+      if (st.current.pincou) st.current.fimPinca = Date.now();
       st.current.dedo = false; st.current.pinca = null; st.current.arrasto = null; st.current.espera = null; st.current.pincou = false;
     },
   })).current;
