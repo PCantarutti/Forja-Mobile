@@ -1,18 +1,21 @@
+import * as Clipboard from "expo-clipboard";
+import { File as ArquivoLocal, Paths } from "expo-file-system";
+import * as Sharing from "expo-sharing";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ActivityIndicator, FlatList, Pressable, ScrollView, View, useWindowDimensions } from "react-native";
+import { ActivityIndicator, Pressable, ScrollView, View } from "react-native";
 import { Text, TextInput } from "./Texto";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { api, cancelado, lerAjustes, type Msg, salvaAjustes, streamSSE } from "./api";
 import type { Conv } from "./Chat";
-import { pergunta as dialogo } from "./Dialogo";
-import { Abaixo, Acima, Cubo, Enviar, Parar } from "./icones";
+import { Balanca, Brain, Check, Copy, Cube, Download, Eye, EyeOff, Gauge, Play, Plus, Refresh, Split, Star, Voltar, X } from "./icones";
+import { BotaoEnviar } from "./Imagens";
 import Markdown from "./Markdown";
 import Modelos, { chave, type Escolha } from "./Modelos";
 import { Terminal } from "./Painel";
 import Site from "./Site";
 import { useTeclado } from "./teclado";
 import { c, mono, s } from "./tema";
-import { Campo, Chip, Folha, Opcao, Seletor } from "./ui";
+import { Botao, Chip, Gira, Opcao, Pulsa, toast } from "./ui";
 
 // CompararItem / CompararEstado / julgamento do desktop (types.ts, comparar.py, baterias.py).
 type Item = { id: string; rotulo: string; nome: string; status: string; content: string; reasoning?: string;
@@ -22,17 +25,34 @@ type Juizo = { status: string; juiz?: string; passos?: string[]; texto?: string;
                stats?: { tokens?: number; seconds?: number; tps?: number } | null };
 type Bateria = { titulo: string; mede: string; prompt: string; gabarito?: string; anexo?: { nome: string } | null };
 type Ajustes = { modelos: Escolha[]; modo: "paralelo" | "sequencial"; cego: boolean; juiz: Escolha | null; autoJulgar: boolean };
+type Placar = { nome: string; rodadas: number; vitorias: number; erros: number; tps: number | null };
 
-const COR: Record<string, string> = { pronto: c.green, erro: c.red, rodando: c.sky, carregando: c.amber, cancelado: c.faint, pendente: c.faint };
-const MODOS = [{ id: "paralelo" as const, rotulo: "Paralelo" }, { id: "sequencial" as const, rotulo: "Sequencial" }];
+const COR: Record<string, string> = { pronto: c.ok, erro: c.err, rodando: c.info, carregando: c.warn, cancelado: c.faint, pendente: c.faint };
+const n2 = (x: number) => x.toFixed(2).replace(".", ",");
 
-/** Primeiro bloco de código da resposta (o que o "Testar" roda), com a linguagem da cerca. */
-function codigoDe(texto: string): { codigo: string; lang: string } | null {
-  const m = /```([\w+-]*)\n([\s\S]*?)```/.exec(texto);
-  return m ? { lang: m[1], codigo: m[2] } : null;
+/** Blocos de código da resposta (o que o "Testar" roda), com a linguagem da cerca; o resto é texto. */
+function partes(texto: string): ({ tipo: "texto"; t: string } | { tipo: "codigo"; lang: string; codigo: string })[] {
+  const out: ({ tipo: "texto"; t: string } | { tipo: "codigo"; lang: string; codigo: string })[] = [];
+  let fim = 0;
+  for (const m of texto.matchAll(/```([\w+-]*)\n([\s\S]*?)```/g)) {
+    if (m.index! > fim) out.push({ tipo: "texto", t: texto.slice(fim, m.index) });
+    out.push({ tipo: "codigo", lang: m[1], codigo: m[2] });
+    fim = m.index! + m[0].length;
+  }
+  if (fim < texto.length) out.push({ tipo: "texto", t: texto.slice(fim) });
+  return out;
 }
 
-/** Comparar modelos: o mesmo prompt em 2 a 6 modelos, lado a lado, com bateria de teste, voto, teste do código e revisor. */
+/** Salva texto no celular pelo compartilhar do Android (Drive, Arquivos, e-mail…). */
+export async function compartilhaTexto(nome: string, texto: string, mime = "text/markdown") {
+  const arq = new ArquivoLocal(Paths.cache, nome);
+  if (arq.exists) arq.delete();
+  arq.create();
+  arq.write(texto);
+  await Sharing.shareAsync(arq.uri, { mimeType: mime, dialogTitle: "Salvar" });
+}
+
+/** Comparar modelos (CompararView do desktop): o mesmo prompt em 2 a 6 modelos, empilhados, com voto, teste do código e revisor. */
 export default function Comparar({ conv, onCriada, onTurno }: { conv: Conv | null; onCriada: (c: Conv) => void; onTurno: () => void }) {
   const [convId, setConvId] = useState<number | null>(conv?.id ?? null);
   const [estado, setEstado] = useState<Estado | null>(null);
@@ -44,20 +64,17 @@ export default function Comparar({ conv, onCriada, onTurno }: { conv: Conv | nul
   const [bateria, setBateria] = useState<{ id: string; b: Bateria } | null>(null);
   const [baterias, setBaterias] = useState<Record<string, Bateria>>({});
   const [juizo, setJuizo] = useState<Juizo | null>(null);
-  const [folha, setFolha] = useState<null | "modelos" | "ajustes" | "juiz" | "adicionar" | "placar">(null);
-  const [placar, setPlacar] = useState<{ nome: string; rodadas: number; vitorias: number; erros: number; tps: number | null }[]>([]);
+  const [folha, setFolha] = useState<null | "candidato" | "juiz" | "adicionar">(null);
+  const [candidato, setCandidato] = useState<Escolha | null>(null); // modelo a pôr na lista (composer)
+  const [paraAdicionar, setParaAdicionar] = useState<Escolha | null>(null); // modelo a somar nesta comparação
+  const [placar, setPlacar] = useState<Placar[] | null>(null);
   const [teste, setTeste] = useState<null | { tipo: "web"; servidor: string; caminho: string } | { tipo: "terminal"; comando: string }>(null);
+  const [vram, setVram] = useState<{ msg: string; texto: string; criada: number | null } | null>(null);
   const [erro, setErro] = useState("");
-  const [pagina, setPagina] = useState(0);
   const abort = useRef<AbortController | null>(null);
   const abortJuiz = useRef<AbortController | null>(null);
-  const paginas = useRef<FlatList<Item>>(null);
-  // Uma rolagem por página (resposta ou Revisor): os botões ↑ ↓ agem na página que está na tela.
-  const rolagens = useRef<Record<string, ScrollView | null>>({});
   const inset = useSafeAreaInsets();
   const teclado = useTeclado();
-  const { width } = useWindowDimensions();
-  const vaiPara = (i: number) => { setPagina(i); paginas.current?.scrollToIndex({ index: i, animated: true }); };
   const muda = (x: Partial<Ajustes>) => setAj((a) => {
     const n = { ...a, ...x };
     salvaAjustes("comparar", n);
@@ -109,9 +126,11 @@ export default function Comparar({ conv, onCriada, onTurno }: { conv: Conv | nul
     rodava.current = rodando;
   }, [rodando]);
 
+  const temGguf = aj.modelos.some((m) => m.path);
   async function roda(confirm = false, texto = prompt.trim(), jaCriada: number | null = null) {
     if (!texto || aj.modelos.length < 2) return;
     setErro("");
+    setVram(null);
     let criada = jaCriada;
     try {
       // O repetir com confirm é outro closure (convId ainda null): recebe a conversa já criada, senão abria outra.
@@ -125,17 +144,14 @@ export default function Comparar({ conv, onCriada, onTurno }: { conv: Conv | nul
       criada = id;
       setPedido(texto);
       setPrompt("");
-      setPagina(0);
       setJuizo(null);
       const itens = aj.modelos.map((m) => (m.path ? { path: m.path, nome: m.nome } : { provider: m.provider, model: m.model, nome: m.nome }));
       // .gguf carrega um por vez na VRAM: o desktop trava o sequencial nesse caso.
-      const modo = aj.modelos.some((m) => m.path) ? "sequencial" : aj.modo;
+      const modo = temGguf ? "sequencial" : aj.modo;
       await segue(`/comparar/${id}/rodar`, { prompt: texto, itens, modo, cego: aj.cego, confirm, bateria: bateria?.id ?? "",
         revisor: aj.autoJulgar && aj.juiz?.model ? { provider: aj.juiz.provider, model: aj.juiz.model } : null });
     } catch (e: any) {
-      if (e.status === 409 && !confirm)
-        return dialogo("VRAM ocupada", `${e.message}\n\nDescarregar e comparar?`,
-          [{ texto: "Cancelar", estilo: "cancelar", acao: () => setPrompt(texto) }, { texto: "Descarregar e comparar", acao: () => roda(true, texto, criada) }]);
+      if (e.status === 409 && !confirm) { setPrompt(texto); return setVram({ msg: e.message, texto, criada }); }
       if (!cancelado(e)) { setErro(e.message); setPrompt((p) => p || texto); } // falhou: o prompt volta para a caixa
     }
   }
@@ -158,9 +174,8 @@ export default function Comparar({ conv, onCriada, onTurno }: { conv: Conv | nul
     segueJuiz(estado.message_id, { provider: aj.juiz.provider, model: aj.juiz.model });
   }
 
-  async function testa(it: Item) {
-    const cod = codigoDe(it.content);
-    if (!cod || !estado) return;
+  async function testa(it: Item, cod: { codigo: string; lang: string }) {
+    if (!estado) return;
     try {
       const r = await api.post<any>("/comparar/testar", { codigo: cod.codigo, linguagem: cod.lang, chave: `${estado.message_id}-${it.rotulo}`,
         conv: convId, bateria: bateria?.id ?? "" }, 60000);
@@ -170,213 +185,308 @@ export default function Comparar({ conv, onCriada, onTurno }: { conv: Conv | nul
     } catch (e: any) { setErro(e.message); }
   }
 
-  const nomeDe = (it: Item) => (estado?.cego && !estado.revelado ? `Modelo ${it.rotulo}` : `${it.rotulo} · ${it.nome}`);
+  const cegoAtivo = !!estado?.cego && !estado.revelado;
+  const nomeDe = (it: Item) => (cegoAtivo ? `Modelo ${it.rotulo}` : it.nome);
+  const markdown = () => estado ? [`# Comparação`, "", `> ${pedido}`, "",
+    ...estado.itens.flatMap((it) => [`## ${nomeDe(it)}`, "", it.content || it.error || "", "",
+      it.stats?.tokens ? `_${it.stats.tps ? `${n2(it.stats.tps)} tok/s · ` : ""}${it.stats.seconds ? `${n2(it.stats.seconds)} s · ` : ""}${it.stats.tokens} tokens_` : "", ""]),
+    ...(juizo?.texto ? ["## Análise", "", juizo.texto] : [])].join("\n") : "";
+  const abrePlacar = () => (placar ? setPlacar(null) : api.get<{ linhas: Placar[] }>("/comparar/placar").then((r) => setPlacar(r.linhas)).catch((e) => setErro(e.message)));
   const pode = !!prompt.trim() && aj.modelos.length >= 2;
 
+  if (teste)
+    return (
+      <View style={{ flex: 1, paddingBottom: teclado }}>
+        <Pressable onPress={() => setTeste(null)} style={{ flexDirection: "row", alignItems: "center", gap: 6, padding: 12 }}>
+          <Voltar size={16} color={c.muted} /><Text style={s.muted}>Voltar à comparação</Text>
+        </Pressable>
+        {teste.tipo === "web" ? <Site nome={teste.servidor} caminho={teste.caminho} /> : convId != null && <Terminal conv={convId} comando={teste.comando} />}
+      </View>
+    );
+
+  const meta = estado ? [`${estado.itens.length} modelos`, estado.modo === "sequencial" ? "um de cada vez" : "ao mesmo tempo", estado.cego ? "modo cego" : ""]
+    .filter(Boolean).join(" · ") : "";
   return (
     <View style={{ flex: 1, paddingBottom: teclado }}>
-      {teste ? (
-        <View style={{ flex: 1 }}>
-          <Pressable onPress={() => setTeste(null)} style={{ padding: 12 }}><Text style={s.muted}>‹ Voltar à comparação</Text></Pressable>
-          {teste.tipo === "web" ? <Site nome={teste.servidor} caminho={teste.caminho} /> : convId != null && <Terminal conv={convId} comando={teste.comando} />}
-        </View>
-      ) : estado ? (
-        <View style={{ flex: 1 }}>
-          {!!pedido && <Text style={[s.muted, { paddingHorizontal: 16, paddingTop: 10 }]} numberOfLines={2}>“{pedido}”</Text>}
-          {/* Abas: uma por resposta + o Revisor. Cada página rola sozinha (a lista horizontal não herda a altura da maior). */}
-          <View style={{ flexDirection: "row", gap: 6, paddingHorizontal: 12, paddingVertical: 10 }}>
-            {estado.itens.map((it, i) => (
-              <Pressable key={it.id} onPress={() => vaiPara(i)}
-                         style={{ flex: 1, alignItems: "center", paddingVertical: 6, borderRadius: 10,
-                                  backgroundColor: pagina === i ? c.raised : c.surface, borderColor: estado.voto === it.id ? c.amber : c.line, borderWidth: 1 }}>
-                <Text style={{ color: c.fg, fontWeight: "700" }}>{it.rotulo}{estado.voto === it.id ? " 🏆" : ""}</Text>
-                <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: COR[it.status] ?? c.faint, marginTop: 3 }} />
-              </Pressable>
-            ))}
-            <Pressable onPress={() => vaiPara(estado.itens.length)}
-                       style={{ flex: 1.4, alignItems: "center", justifyContent: "center", paddingVertical: 6, borderRadius: 10,
-                                backgroundColor: pagina === estado.itens.length ? c.raised : c.surface, borderColor: c.line, borderWidth: 1 }}>
-              <Text style={{ color: c.fg, fontSize: 13 }}>Revisor</Text>
-              {juizo?.status === "rodando" && <ActivityIndicator size="small" color={c.muted} />}
-            </Pressable>
-          </View>
-          <FlatList
-            style={{ flex: 1 }}
-            data={[...estado.itens.map((it) => ({ tipo: "item" as const, it })), { tipo: "revisor" as const, it: null }]}
-            horizontal
-            pagingEnabled
-            keyExtractor={(p) => (p.it ? p.it.id : "revisor")}
-            showsHorizontalScrollIndicator={false}
-            onMomentumScrollEnd={(e) => setPagina(Math.round(e.nativeEvent.contentOffset.x / width))}
-            getItemLayout={(_, i) => ({ length: width, offset: width * i, index: i })}
-            ref={paginas as any}
-            renderItem={({ item: pg }) => pg.it ? (
-              <ScrollView ref={(r) => { rolagens.current[pg.it!.id] = r; }} style={{ width }} contentContainerStyle={{ padding: 16, gap: 10, paddingBottom: 70 }}>
-                <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                  <Cubo size={15} color={c.muted} />
-                  <Text style={[s.txt, { fontWeight: "600", flex: 1 }]} numberOfLines={1}>{nomeDe(pg.it)}</Text>
-                  {["rodando", "carregando"].includes(pg.it.status) && <ActivityIndicator size="small" color={c.muted} />}
-                </View>
-                <Text style={{ color: COR[pg.it.status] ?? c.faint, fontSize: 12 }}>
-                  {pg.it.status}{pg.it.stats?.tokens ? ` · ${pg.it.stats.tokens} tokens` : ""}
-                  {pg.it.stats?.seconds ? ` · ${pg.it.stats.seconds.toFixed(1)}s` : ""}{pg.it.stats?.tps ? ` · ${pg.it.stats.tps.toFixed(1)} t/s` : ""}
-                </Text>
-                {!!pg.it.error && <Text style={[s.muted, { color: c.red }]}>{pg.it.error}</Text>}
-                {pg.it.content ? <Markdown texto={pg.it.content} /> : pg.it.reasoning ? (
-                  // Pensando: o raciocínio aparece apagado, como o bloco "Raciocinou" do chat.
-                  <Text style={[s.faint, { fontSize: 13, lineHeight: 19 }]} numberOfLines={12}>{pg.it.reasoning.slice(-1200)}</Text>
-                ) : !pg.it.error && <Text style={s.faint}>Aguardando…</Text>}
-                {!rodando && (
-                  <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
-                    {pg.it.status === "pronto" && (
-                      <Pressable style={estado.voto === pg.it.id ? s.btn : s.btnSec} onPress={() => vota(pg.it!.id)}>
-                        <Text style={estado.voto === pg.it.id ? s.btnTxt : s.btnSecTxt}>{estado.voto === pg.it.id ? "🏆 Vencedor" : "Votar"}</Text>
-                      </Pressable>
-                    )}
-                    {pg.it.status === "pronto" && codigoDe(pg.it.content) && (
-                      <Pressable style={s.btnSec} onPress={() => testa(pg.it!)}><Text style={s.btnSecTxt}>▶ Testar</Text></Pressable>
-                    )}
-                    <Pressable style={s.btnSec} onPress={() => acao("refazer", { item: pg.it!.id })}><Text style={s.btnSecTxt}>Refazer</Text></Pressable>
-                    {estado.itens.length > 2 && (
-                      <Pressable style={s.btnSec} onPress={() => acao("remover", { item: pg.it!.id })}><Text style={[s.btnSecTxt, { color: c.red }]}>Remover</Text></Pressable>
-                    )}
-                    {estado.itens.length < 6 && (
-                      <Pressable style={s.btnSec} onPress={() => setFolha("adicionar")}><Text style={s.btnSecTxt}>+ Modelo</Text></Pressable>
-                    )}
-                    <Pressable style={s.btnSec} onPress={() => setPrompt(pedido)}><Text style={s.btnSecTxt}>Reusar prompt</Text></Pressable>
-                  </View>
-                )}
-              </ScrollView>
-            ) : (
-              // Revisor: um modelo lê as respostas (com o gabarito, se for bateria) e diz qual resolve melhor.
-              <ScrollView ref={(r) => { rolagens.current.revisor = r; }} style={{ width }} contentContainerStyle={{ padding: 16, gap: 12, paddingBottom: 70 }}>
-                <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                  <Text style={[s.txt, { fontWeight: "600", flex: 1 }]}>Revisor</Text>
-                  <Chip rotulo={aj.juiz?.nome ?? "Escolher modelo"} icone={<Cubo size={13} color={c.muted} />} onPress={() => setFolha("juiz")} max={200} />
-                </View>
-                <Text style={s.muted}>Um modelo lê todas as respostas{bateria ? " e o gabarito da bateria" : ""} e diz qual resolve melhor, e por quê.</Text>
-                {juizo?.status === "rodando" ? (
-                  <View style={{ gap: 8 }}>
-                    <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                      <ActivityIndicator size="small" color={c.muted} />
-                      <Text style={s.muted}>{juizo.passos?.[juizo.passos.length - 1] ?? "Analisando as respostas…"}</Text>
-                    </View>
-                    {!!juizo.texto && <Markdown texto={juizo.texto} />}
-                    <Pressable style={[s.btnSec, { alignSelf: "flex-start" }]}
-                               onPress={() => api.post(`/comparar/${estado.message_id}/julgar/parar`).catch((e) => setErro(e.message))}>
-                      <Text style={s.btnSecTxt}>Parar</Text>
-                    </Pressable>
-                  </View>
-                ) : (
-                  <>
-                    {!!juizo?.texto && <Markdown texto={juizo.texto} />}
-                    {!!juizo?.stats?.tokens && (
-                      <Text style={s.faint}>{juizo.juiz} · {juizo.stats.tokens} tokens · {Math.round(juizo.stats.seconds ?? 0)}s</Text>
-                    )}
-                    {!!juizo?.erro && <Text style={{ color: c.red, fontSize: 13 }}>{juizo.erro}</Text>}
-                    {!rodando && (
-                      <Pressable style={[s.btn, { alignSelf: "flex-start" }]} onPress={julgar}>
-                        <Text style={s.btnTxt}>{juizo?.texto ? "Analisar de novo" : "Analisar com IA"}</Text>
-                      </Pressable>
-                    )}
-                  </>
-                )}
-                <Opcao rotulo="Revisar ao terminar" dica="O PC começa o revisor sozinho quando todas as respostas ficarem prontas (vale também para Refazer e + Modelo)."
-                       valor={aj.autoJulgar} onMuda={(v) => muda({ autoJulgar: v })} />
-              </ScrollView>
-            )}
-          />
-          <View style={{ position: "absolute", right: 14, bottom: 12, gap: 8 }}>
-            {(["topo", "fim"] as const).map((onde) => (
-              <Pressable key={onde} hitSlop={6}
-                         onPress={() => {
-                           const r = rolagens.current[estado.itens[pagina]?.id ?? "revisor"];
-                           if (onde === "topo") r?.scrollTo({ y: 0, animated: true }); else r?.scrollToEnd({ animated: true });
-                         }}
-                         style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: c.raised, borderColor: c.line, borderWidth: 1,
-                                  alignItems: "center", justifyContent: "center" }}>
-                {onde === "topo" ? <Acima size={18} /> : <Abaixo size={18} />}
-              </Pressable>
-            ))}
-          </View>
-        </View>
-      ) : (
-        <ScrollView contentContainerStyle={{ flexGrow: 1, justifyContent: "center", gap: 12, padding: 24 }}>
-          <Text style={{ color: c.fg, fontSize: 22, fontWeight: "600", textAlign: "center" }}>Comparar modelos</Text>
-          <Text style={[s.muted, { textAlign: "center" }]}>O mesmo prompt em 2 a 6 modelos, lado a lado. Ou escolha uma bateria de teste pronta:</Text>
-          {Object.entries(baterias).map(([id, b]) => (
-            <Pressable key={id} onPress={() => { setBateria({ id, b }); setPrompt(b.prompt); }}
-                       style={{ borderColor: bateria?.id === id ? c.fg : c.line, borderWidth: 1, borderRadius: 14, padding: 12, gap: 2 }}>
-              <Text style={s.txt}>{b.titulo}</Text>
-              <Text style={s.faint} numberOfLines={2}>Mede {b.mede}{b.anexo ? ` · anexo ${b.anexo.nome}` : ""}</Text>
-            </Pressable>
-          ))}
-        </ScrollView>
-      )}
-      {!!erro && <Text style={[s.muted, { color: c.red, paddingHorizontal: 14 }]} onPress={() => setErro("")}>{erro}</Text>}
-      {!teste && (
-        <View style={{ paddingHorizontal: 12, paddingTop: 6, paddingBottom: teclado ? 8 : Math.max(inset.bottom, 10) }}>
-          <View style={{ backgroundColor: c.surface, borderColor: c.line, borderWidth: 1, borderRadius: 24, padding: 8, gap: 6 }}>
-            {bateria && (
-              <Pressable onPress={() => { setBateria(null); setPrompt(""); }} style={{ paddingHorizontal: 8 }}>
-                <Text style={{ color: c.amber, fontSize: 12.5 }}>Bateria: {bateria.b.titulo}{bateria.b.gabarito ? " · com gabarito para o revisor" : ""}  ✕</Text>
-              </Pressable>
-            )}
-            <TextInput style={{ color: c.fg, fontSize: 15, maxHeight: 130, paddingHorizontal: 8, paddingTop: 6 }} value={prompt}
-                       onChangeText={setPrompt} multiline placeholder="Prompt para todos os modelos" placeholderTextColor={c.faint} />
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6 }} style={{ flex: 1 }}>
-                <Chip rotulo={aj.modelos.length ? `${aj.modelos.length} modelos` : "Escolher modelos"} icone={<Cubo size={13} color={c.muted} />}
-                      onPress={() => setFolha("modelos")} />
-                <Chip rotulo={aj.modelos.some((m) => m.path) ? "Sequencial" : aj.modo === "paralelo" ? "Paralelo" : "Sequencial"} onPress={() => setFolha("ajustes")} />
-                <Chip rotulo={aj.cego ? "Cego" : "Nomes à vista"} ativo={aj.cego} onPress={() => muda({ cego: !aj.cego })} />
-                <Chip rotulo="Revisar ao terminar" ativo={aj.autoJulgar}
-                      onPress={() => (aj.juiz ? muda({ autoJulgar: !aj.autoJulgar }) : setFolha("ajustes"))} />
-                <Chip rotulo="Placar" onPress={() => { setFolha("placar"); api.get<any>("/comparar/placar").then((r) => setPlacar(r.linhas)).catch(() => {}); }} />
-              </ScrollView>
-              {rodando ? (
-                <Pressable onPress={() => acao("cancelar")} style={redondo}><Parar size={16} color="#000" /></Pressable>
-              ) : (
-                <Pressable onPress={() => roda()} disabled={!pode} style={[redondo, { opacity: pode ? 1 : 0.35 }]}><Enviar size={18} color="#000" /></Pressable>
-              )}
+      <ScrollView contentContainerStyle={{ paddingVertical: 12, paddingHorizontal: 14, gap: 12, flexGrow: 1 }} keyboardShouldPersistTaps="handled">
+        {estado ? (
+          <>
+            <View style={{ backgroundColor: c.surface, borderRadius: 14, padding: 12, gap: 6 }}>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                <Text style={s.secao2}>PROMPT</Text>
+                <Text style={{ color: c.faint, fontSize: 11.5, flex: 1 }} numberOfLines={1}>{meta}</Text>
+                <Pressable hitSlop={8} onPress={() => setPrompt(pedido)}><Text style={{ color: c.accentText, fontSize: 12.5 }}>Reusar</Text></Pressable>
+              </View>
+              <Text style={{ color: c.fg, fontSize: 14.5, lineHeight: 21 }} selectable>{pedido}</Text>
             </View>
+
+            {placar && (
+              <View style={{ backgroundColor: c.surface, borderRadius: 14, padding: 12, gap: 6 }}>
+                <Text style={s.secao2}>PLACAR</Text>
+                {placar.map((l) => (
+                  <View key={l.nome} style={{ flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 3 }}>
+                    <Text style={{ color: c.fg, fontFamily: mono, fontSize: 12.5, flex: 1 }} numberOfLines={1}>{l.nome}</Text>
+                    <Star size={12} color={c.amber} cheia />
+                    <Text style={{ color: c.fg, fontFamily: mono, fontSize: 12 }}>{l.vitorias}</Text>
+                    <Text style={{ color: c.faint, fontFamily: mono, fontSize: 12 }}>{l.rodadas} rod.</Text>
+                    {l.tps != null && <Text style={{ color: c.faint, fontFamily: mono, fontSize: 12 }}>{Math.round(l.tps)} tok/s</Text>}
+                    {!!l.erros && <Text style={{ color: c.err, fontFamily: mono, fontSize: 12 }}>{l.erros} erro{l.erros > 1 ? "s" : ""}</Text>}
+                  </View>
+                ))}
+                {!placar.length && <Text style={s.faint}>Nenhuma comparação votada ainda.</Text>}
+              </View>
+            )}
+
+            {estado.itens.map((it) => (
+              <Resposta key={it.id} it={it} nome={nomeDe(it)} cego={cegoAtivo} votado={estado.voto === it.id} rodando={rodando}
+                        onVotar={() => vota(it.id)} onRefazer={() => acao("refazer", { item: it.id })} onTestar={(cod) => testa(it, cod)}
+                        onRemover={estado.itens.length > 2 && !rodando ? () => acao("remover", { item: it.id }) : undefined} />
+            ))}
+
+            {estado.itens.length < 6 && !rodando && (
+              <View style={{ gap: 8 }}>
+                <Text style={[s.muted, { fontSize: 12.5 }]}>Adicionar a esta comparação (só ele gera):</Text>
+                <View style={{ flexDirection: "row", gap: 8 }}>
+                  <Pressable onPress={() => setFolha("adicionar")} style={{ flex: 1, height: 38, borderRadius: 999, backgroundColor: c.raised, flexDirection: "row",
+                                                                            alignItems: "center", gap: 6, paddingHorizontal: 12 }}>
+                    <Cube size={14} color={c.muted} />
+                    <Text style={{ color: paraAdicionar ? c.fg : c.faint, fontSize: 13, fontFamily: mono, flex: 1 }} numberOfLines={1}>{paraAdicionar?.nome ?? "Escolher modelo"}</Text>
+                  </Pressable>
+                  <Botao rotulo="Adicionar" desabilitado={!paraAdicionar} icone={<Plus size={14} color={c.fg} />} onPress={() => {
+                    const e = paraAdicionar!;
+                    setParaAdicionar(null);
+                    acao("adicionar", e.path ? { path: e.path } : { provider: e.provider, model: e.model });
+                  }} />
+                  {estado.modo === "sequencial" && <Botao rotulo="+ .gguf" onPress={() => setFolha("adicionar")} />}
+                </View>
+              </View>
+            )}
+
+            <View style={{ gap: 6 }}>
+              <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
+                <Botao rotulo="Copiar Markdown" icone={<Copy size={14} color={c.fg} />}
+                       onPress={() => Clipboard.setStringAsync(markdown()).then(() => toast("Markdown copiado."))} />
+                <Botao rotulo="Baixar .md" icone={<Download size={14} color={c.fg} />}
+                       onPress={() => compartilhaTexto(`comparacao-${estado.message_id}.md`, markdown()).catch((e) => setErro(e.message))} />
+                <Botao rotulo="Placar" icone={<Gauge size={14} color={placar ? c.accentText : c.fg} />} onPress={abrePlacar} />
+              </View>
+              <Text style={[s.faint, { fontSize: 12 }]}>Toque em Testar num bloco de código para vê-lo rodando.</Text>
+            </View>
+
+            <Analise juizo={juizo} juiz={aj.juiz} auto={aj.autoJulgar} rodandoComp={rodando} bateria={!!bateria}
+                     onAuto={(v) => muda({ autoJulgar: v })} onJuiz={() => setFolha("juiz")} onAnalisar={julgar}
+                     onParar={() => api.post(`/comparar/${estado.message_id}/julgar/parar`).catch((e) => setErro(e.message))} />
+          </>
+        ) : (
+          <View style={{ flex: 1, justifyContent: "center", gap: 12, paddingVertical: 12 }}>
+            <Text style={{ color: c.fg, fontSize: 22, fontWeight: "600", textAlign: "center" }}>Comparar modelos</Text>
+            <Text style={[s.muted, { textAlign: "center", lineHeight: 19 }]}>O mesmo prompt em 2 a 6 modelos, uma resposta embaixo da outra. Ou escolha uma bateria de teste pronta:</Text>
+            {Object.entries(baterias).map(([id, b]) => (
+              <Pressable key={id} onPress={() => { setBateria({ id, b }); setPrompt(b.prompt); }}
+                         style={{ borderColor: bateria?.id === id ? c.accentLine : c.line, backgroundColor: bateria?.id === id ? c.accentSoft : c.surface,
+                                  borderWidth: 1, borderRadius: 12, padding: 12, gap: 2 }}>
+                <Text style={{ color: c.fg, fontSize: 14.5 }}>{b.titulo}</Text>
+                <Text style={[s.faint, { fontSize: 12.5 }]} numberOfLines={2}>Mede {b.mede}{b.anexo ? ` · anexo ${b.anexo.nome}` : ""}</Text>
+              </Pressable>
+            ))}
+          </View>
+        )}
+        {!!erro && <Text style={[s.muted, { color: c.err }]} onPress={() => setErro("")}>{erro}</Text>}
+      </ScrollView>
+
+      {vram && (
+        <View style={{ marginHorizontal: 12, marginBottom: 6, borderRadius: 12, borderWidth: 1, borderColor: "rgba(242,161,74,0.45)", backgroundColor: c.warnSoft,
+                       padding: 12, gap: 10 }}>
+          <Text style={{ color: c.fg2, fontSize: 13, lineHeight: 19 }}>{vram.msg}</Text>
+          <View style={{ flexDirection: "row", gap: 8 }}>
+            <Botao primario rotulo="Descarregar e comparar" onPress={() => roda(true, vram.texto, vram.criada)} />
+            <Botao rotulo="Cancelar" onPress={() => setVram(null)} />
           </View>
         </View>
       )}
-      <Modelos aberto={folha === "modelos"} max={6} marcados={aj.modelos} onFecha={() => setFolha(null)}
-               onEscolhe={(e) => { muda({ modelos: e }); setFolha(null); }} />
+      <View style={{ paddingHorizontal: 12, paddingTop: 6, paddingBottom: teclado ? 8 : Math.max(inset.bottom, 10) }}>
+        <View style={{ backgroundColor: c.surface, borderColor: c.line, borderWidth: 1, borderRadius: 24, padding: 8, gap: 6 }}>
+          {aj.modelos.length ? (
+            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6, paddingHorizontal: 4, paddingTop: 2 }}>
+              {aj.modelos.map((m) => (
+                <View key={chave(m)} style={{ flexDirection: "row", alignItems: "center", gap: 5, height: 28, borderRadius: 999, backgroundColor: c.raised,
+                                              paddingLeft: 10, paddingRight: 6 }}>
+                  <Text style={{ color: c.fg2, fontFamily: mono, fontSize: 12, maxWidth: 150 }} numberOfLines={1}>{m.nome}</Text>
+                  <Pressable hitSlop={8} onPress={() => muda({ modelos: aj.modelos.filter((x) => chave(x) !== chave(m)) })}><X size={12} color={c.faint} /></Pressable>
+                </View>
+              ))}
+            </View>
+          ) : <Text style={[s.faint, { fontSize: 12.5, paddingHorizontal: 8, paddingTop: 2 }]}>Escolha de 2 a 6 modelos no seletor abaixo.</Text>}
+          {bateria && (
+            <Pressable onPress={() => { setBateria(null); setPrompt(""); }} style={{ flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 8 }}>
+              <Text style={{ color: c.amber, fontSize: 12.5, flex: 1 }} numberOfLines={1}>Bateria: {bateria.b.titulo}{bateria.b.gabarito ? " · com gabarito para o revisor" : ""}</Text>
+              <X size={13} color={c.amber} />
+            </Pressable>
+          )}
+          <TextInput style={{ color: c.fg, fontSize: 15, maxHeight: 130, paddingHorizontal: 8, paddingTop: 4 }} value={prompt}
+                     onChangeText={setPrompt} multiline placeholderTextColor={c.faint}
+                     placeholder={estado ? "Novo prompt para comparar…" : "O prompt que todos os modelos vão responder…"} />
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6 }} style={{ flex: 1 }}>
+              <Chip rotulo={temGguf || aj.modo === "sequencial" ? "Sequencial" : "Paralelo"} icone={<Split size={14} color={c.muted} />}
+                    onPress={() => (temGguf ? toast("Com .gguf é sempre sequencial: carrega um modelo por vez na GPU.") : muda({ modo: aj.modo === "paralelo" ? "sequencial" : "paralelo" }))} />
+              <Chip rotulo="Modo cego" ativo={aj.cego} icone={aj.cego ? <EyeOff size={14} color={c.accentText} /> : <Eye size={14} color={c.muted} />}
+                    onPress={() => muda({ cego: !aj.cego })} />
+              <Chip rotulo="Revisar ao terminar" ativo={aj.autoJulgar} icone={<Balanca size={14} color={aj.autoJulgar ? c.accentText : c.muted} />}
+                    onPress={() => (aj.juiz ? muda({ autoJulgar: !aj.autoJulgar }) : setFolha("juiz"))} />
+              <Chip rotulo="+ .gguf" icone={<Plus size={14} color={c.muted} />} onPress={() => setFolha("candidato")} />
+              <Chip rotulo={candidato?.nome ?? "Modelo"} icone={<Cube size={14} color={c.muted} />} onPress={() => setFolha("candidato")} />
+              <Chip rotulo="Adicionar" icone={<Plus size={14} color={candidato ? c.accentText : c.faint} />} cor={candidato ? c.accentText : c.faint}
+                    onPress={() => {
+                      if (!candidato || aj.modelos.length >= 6 || aj.modelos.some((m) => chave(m) === chave(candidato))) return;
+                      muda({ modelos: [...aj.modelos, candidato] });
+                      setCandidato(null);
+                    }} />
+            </ScrollView>
+            {rodando ? (
+              <Pressable onPress={() => acao("cancelar")} style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: c.accent, alignItems: "center", justifyContent: "center" }}>
+                <View style={{ width: 12, height: 12, borderRadius: 2, backgroundColor: c.accentFg }} />
+              </Pressable>
+            ) : <BotaoEnviar pode={pode} onPress={() => roda()} />}
+          </View>
+        </View>
+      </View>
+      <Modelos aberto={folha === "candidato"} onFecha={() => setFolha(null)} onEscolhe={([e]) => { setCandidato(e); setFolha(null); }} />
       <Modelos aberto={folha === "juiz"} soProvedor onFecha={() => setFolha(null)}
                onEscolhe={([e]) => { muda({ juiz: e, autoJulgar: aj.autoJulgar || !aj.juiz }); setFolha(null); }} /> {/* 1º revisor já liga o "Revisar ao terminar" */}
       <Modelos aberto={folha === "adicionar"} onFecha={() => setFolha(null)}
-               onEscolhe={([e]) => {
-                 setFolha(null);
-                 if (aj.modelos.some((m) => chave(m) === chave(e))) return;
-                 acao("adicionar", e.path ? { path: e.path } : { provider: e.provider, model: e.model }); // só o novo gera
-               }} />
-      <Folha aberta={folha === "ajustes"} titulo="Como rodar" onFecha={() => setFolha(null)}>
-        <Campo rotulo="Modo" dica={aj.modelos.some((m) => m.path) ? "Com .gguf é sempre sequencial: carrega um modelo por vez na GPU." : "Paralelo roda todos ao mesmo tempo; sequencial, um de cada vez."}>
-          <Seletor opcoes={MODOS} valor={aj.modelos.some((m) => m.path) ? "sequencial" : aj.modo} onMuda={(v) => muda({ modo: v })} />
-        </Campo>
-        <Opcao rotulo="Modo cego" dica="Os nomes dos modelos ficam escondidos até você votar." valor={aj.cego} onMuda={(v) => muda({ cego: v })} />
-        <Opcao rotulo="Revisar ao terminar" valor={aj.autoJulgar} onMuda={(v) => muda({ autoJulgar: v })}
-               dica="Quando todas as respostas terminarem, o PC começa o revisor sozinho — mesmo com o celular bloqueado ou o app fechado." />
-        <Campo rotulo="Modelo revisor">
-          <Chip rotulo={aj.juiz?.nome ?? "Escolher"} icone={<Cubo size={13} color={c.muted} />} onPress={() => setFolha("juiz")} max={260} />
-        </Campo>
-      </Folha>
-      <Folha aberta={folha === "placar"} titulo="Placar" onFecha={() => setFolha(null)}>
-        {placar.map((l) => (
-          <View key={l.nome} style={{ flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 6 }}>
-            <Text style={[s.txt, { flex: 1, fontSize: 14 }]} numberOfLines={1}>{l.nome}</Text>
-            <Text style={[s.muted, { fontFamily: mono, fontSize: 12 }]}>
-              {l.vitorias}🏆 {l.rodadas} rod.{l.erros ? ` ${l.erros} erro` : ""}{l.tps ? ` ${l.tps.toFixed(0)} t/s` : ""}
-            </Text>
-          </View>
-        ))}
-        {!placar.length && <Text style={s.faint}>Nenhuma comparação votada ainda.</Text>}
-      </Folha>
+               onEscolhe={([e]) => { setFolha(null); if (!estado?.itens.some((i) => i.nome === e.nome)) setParaAdicionar(e); }} />
     </View>
   );
 }
 
-const redondo = { width: 36, height: 36, borderRadius: 18, backgroundColor: c.fg, alignItems: "center" as const, justifyContent: "center" as const };
+/** Uma resposta: status, nome (ou Modelo A no cego), Refazer, Votar; raciocínio recolhível; código com Testar; números no rodapé. */
+function Resposta({ it, nome, cego, votado, rodando, onVotar, onRefazer, onTestar, onRemover }: {
+  it: Item; nome: string; cego: boolean; votado: boolean; rodando: boolean; onVotar: () => void; onRefazer: () => void;
+  onTestar: (cod: { codigo: string; lang: string }) => void; onRemover?: () => void;
+}) {
+  const [pensou, setPensou] = useState(false);
+  const ativo = ["rodando", "carregando"].includes(it.status);
+  const bt = { height: 28, borderRadius: 7, borderWidth: 1, borderColor: c.lineStrong, paddingHorizontal: 9, flexDirection: "row" as const,
+               alignItems: "center" as const, gap: 5 };
+  return (
+    <View style={{ backgroundColor: c.surface, borderRadius: 14, borderWidth: 1, borderColor: votado ? c.accentLine : c.line, overflow: "hidden" }}>
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 8, padding: 12, paddingBottom: 8 }}>
+        <Pulsa cor={COR[it.status] ?? c.faint} ativo={ativo} />
+        <Text style={{ color: c.fg, fontFamily: cego ? undefined : mono, fontSize: 12.5, fontWeight: "600", flex: 1 }} numberOfLines={1}>{nome}</Text>
+        {!rodando && (
+          <Pressable style={bt} onPress={onRefazer}><Refresh size={12} color={c.fg2} /><Text style={{ color: c.fg2, fontSize: 12 }}>Refazer</Text></Pressable>
+        )}
+        {it.status === "pronto" && !rodando && (
+          votado ? (
+            <Pressable onPress={onVotar} style={[bt, { backgroundColor: c.accent, borderColor: c.accent }]}>
+              <Star size={12} color={c.accentFg} cheia /><Text style={{ color: c.accentFg, fontSize: 12, fontWeight: "600" }}>Melhor resposta</Text>
+            </Pressable>
+          ) : (
+            <Pressable onPress={onVotar} style={bt}><Star size={12} color={c.fg2} /><Text style={{ color: c.fg2, fontSize: 12 }}>Votar</Text></Pressable>
+          )
+        )}
+      </View>
+      <View style={{ paddingHorizontal: 12, paddingBottom: 12, gap: 10 }}>
+        {!!it.reasoning && (
+          <View style={{ gap: 6 }}>
+            <Pressable onPress={() => setPensou(!pensou)} style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+              <Brain size={14} color={c.faint} />
+              <Text style={{ color: c.faint, fontSize: 13 }}>Raciocínio{ativo && !it.content ? "…" : ""}</Text>
+              <Gira aberto={pensou} size={13} color={c.faint} />
+            </Pressable>
+            {pensou && <Text style={{ color: c.faint, fontSize: 12.5, lineHeight: 19 }} selectable>{it.reasoning}</Text>}
+          </View>
+        )}
+        {!!it.error && <Text style={{ color: c.err, fontSize: 13 }}>{it.error}</Text>}
+        {it.content ? partes(it.content).map((p, i) => p.tipo === "texto" ? <Markdown key={i} texto={p.t} /> : (
+          <BlocoTestavel key={i} lang={p.lang} codigo={p.codigo} onTestar={it.status === "pronto" ? () => onTestar(p) : undefined} />
+        )) : !it.error && !it.reasoning && <Text style={s.faint}>{ativo ? "Gerando…" : "Aguardando…"}</Text>}
+        {!!onRemover && <Text onPress={onRemover} style={{ color: c.faint, fontSize: 12.5 }}>Remover da comparação</Text>}
+      </View>
+      {!!it.stats?.tokens && (
+        <Text style={{ borderTopWidth: 1, borderTopColor: c.line, paddingHorizontal: 12, paddingVertical: 8, color: c.faint, fontFamily: mono, fontSize: 11.5 }}>
+          {[it.stats.tps != null ? `${n2(it.stats.tps)} tok/s` : "", it.stats.seconds != null ? `${n2(it.stats.seconds)} s` : "",
+            `${it.stats.tokens.toLocaleString("pt-BR")} tokens`].filter(Boolean).join(" · ")}
+        </Text>
+      )}
+    </View>
+  );
+}
+
+/** Bloco de código da resposta: linguagem, Testar e Copiar; limitado a 150 px com "Ver o código inteiro". */
+function BlocoTestavel({ lang, codigo, onTestar }: { lang: string; codigo: string; onTestar?: () => void }) {
+  const [inteiro, setInteiro] = useState(false);
+  const longo = codigo.split("\n").length > 8;
+  return (
+    <View style={{ backgroundColor: c.code, borderRadius: 12, borderWidth: 1, borderColor: c.line, overflow: "hidden" }}>
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 8, paddingLeft: 12, paddingRight: 8, paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: c.line }}>
+        <Text style={{ color: c.faint, fontFamily: mono, fontSize: 11.5, flex: 1 }}>{lang || "código"}</Text>
+        {onTestar && (
+          <Pressable onPress={onTestar} style={{ flexDirection: "row", alignItems: "center", gap: 5, height: 26, paddingHorizontal: 9, borderRadius: 7, backgroundColor: c.raised }}>
+            <Play size={11} color={c.fg} /><Text style={{ color: c.fg, fontSize: 12 }}>Testar</Text>
+          </Pressable>
+        )}
+        <Pressable hitSlop={10} onPress={() => Clipboard.setStringAsync(codigo).then(() => toast("Código copiado."))}><Copy size={13} color={c.muted} /></Pressable>
+      </View>
+      <ScrollView horizontal style={{ maxHeight: inteiro ? undefined : 150 }} contentContainerStyle={{ padding: 12 }}>
+        <Text style={{ color: c.fg, fontFamily: mono, fontSize: 12.5, lineHeight: 19 }} selectable>{codigo}</Text>
+      </ScrollView>
+      {longo && (
+        <Pressable onPress={() => setInteiro(!inteiro)} style={{ borderTopWidth: 1, borderTopColor: c.line, paddingVertical: 7, alignItems: "center" }}>
+          <Text style={{ color: c.accentText, fontSize: 12.5 }}>{inteiro ? "Recolher" : "Ver o código inteiro"}</Text>
+        </Pressable>
+      )}
+    </View>
+  );
+}
+
+// ponytail: ícone por palavra-chave na linha do revisor; trocar quando o julgamento vier estruturado do PC.
+const iconeLinha = (l: string) => /(✓|✅|\bcorret|\bcert|passou|melhor|vence)/i.test(l) ? <Check size={14} color={c.ok} />
+  : /(✗|❌|\berr|falh|pior|quebr)/i.test(l) ? <X size={14} color={c.err} /> : <Gauge size={14} color={c.muted} />;
+
+function Analise({ juizo, juiz, auto, rodandoComp, bateria, onAuto, onJuiz, onAnalisar, onParar }: {
+  juizo: Juizo | null; juiz: Escolha | null; auto: boolean; rodandoComp: boolean; bateria: boolean; onAuto: (v: boolean) => void;
+  onJuiz: () => void; onAnalisar: () => void; onParar: () => void;
+}) {
+  const rodando = juizo?.status === "rodando";
+  const linhas = (juizo?.texto ?? "").split("\n");
+  return (
+    <View style={{ backgroundColor: c.surface, borderRadius: 14, padding: 12, gap: 12 }}>
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+        <Balanca size={16} color={c.fg} />
+        <Text style={s.secao2}>ANALISAR COM IA</Text>
+      </View>
+      <Text style={[s.muted, { lineHeight: 19 }]}>Um modelo que você confia lê as respostas{bateria ? ", o gabarito da bateria" : ""} e as estatísticas e compara.</Text>
+      <Opcao rotulo="Revisar ao terminar" dica="O PC começa o revisor sozinho, mesmo com o app fechado." valor={auto} onMuda={onAuto} />
+      <View style={{ flexDirection: "row", gap: 8 }}>
+        <Pressable onPress={onJuiz} style={{ flex: 1, height: 38, borderRadius: 999, backgroundColor: c.raised, flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 12 }}>
+          <Cube size={14} color={c.muted} />
+          <Text style={{ color: juiz ? c.fg : c.faint, fontFamily: mono, fontSize: 12.5, flex: 1 }} numberOfLines={1}>{juiz?.nome ?? "Modelo revisor"}</Text>
+        </Pressable>
+        {rodando ? <Botao rotulo="Parar" onPress={onParar} />
+          : <Botao primario rotulo={juizo?.texto ? "Analisar de novo" : "Analisar"} desabilitado={rodandoComp} onPress={onAnalisar} />}
+      </View>
+      {rodando && (
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+          <ActivityIndicator size="small" color={c.muted} />
+          <Text style={s.muted}>{juizo?.passos?.[juizo.passos.length - 1] ?? "Analisando as respostas…"}</Text>
+        </View>
+      )}
+      {!!juizo?.texto && (
+        <View style={{ gap: 8 }}>
+          {linhas.map((l, i) => /^\s*[-*]\s+/.test(l) ? (
+            <View key={i} style={{ flexDirection: "row", gap: 8, alignItems: "flex-start" }}>
+              <View style={{ paddingTop: 4 }}>{iconeLinha(l)}</View>
+              <View style={{ flex: 1 }}><Markdown texto={l.replace(/^\s*[-*]\s+/, "")} /></View>
+            </View>
+          ) : l.trim() ? <Markdown key={i} texto={l} /> : null)}
+        </View>
+      )}
+      {!!juizo?.stats?.tokens && !rodando && (
+        <Text style={{ color: c.faint, fontFamily: mono, fontSize: 11.5 }}>{juizo.juiz} · {juizo.stats.tokens.toLocaleString("pt-BR")} tokens · {Math.round(juizo.stats.seconds ?? 0)} s</Text>
+      )}
+      {!!juizo?.erro && <Text style={{ color: c.err, fontSize: 13 }}>{juizo.erro}</Text>}
+    </View>
+  );
+}
