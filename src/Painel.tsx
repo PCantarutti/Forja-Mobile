@@ -8,6 +8,9 @@ import { Codigo } from "./Markdown";
 import { useTeclado } from "./teclado";
 import { pergunta } from "./Dialogo";
 import { c, mono, s } from "./tema";
+import { abreBaixarModelos } from "./BaixarModelos";
+import { Download } from "./icones";
+import { Botao } from "./ui";
 
 // Os 7 painéis do canto superior direito do desktop (RightPanel.tsx, TABS), na mesma ordem.
 export type PainelId = "info" | "navegador" | "terminal" | "alteracoes" | "instancias" | "local" | "planos";
@@ -384,7 +387,7 @@ function Alteracoes({ conv }: P & { conv: number }) {
           {aberto === f.path && (f.binary ? <Text style={s.faint}>Arquivo binário.</Text> : (
             <View style={{ backgroundColor: c.code, borderRadius: 10, padding: 10 }}>
               {f.diff.split("\n").slice(0, 300).map((l, i) => (
-                <Text key={i} style={{ fontFamily: mono, fontSize: 11.5, color: l.startsWith("+") ? c.green : l.startsWith("-") ? c.red : l.startsWith("@@") ? c.sky : c.muted }}>{l}</Text>
+                <Text key={i} style={{ fontFamily: mono, fontSize: 11.5, color: l.startsWith("+") ? c.diffAdd : l.startsWith("-") ? c.diffDel : l.startsWith("@@") ? c.info : c.muted }}>{l}</Text>
               ))}
             </View>
           ))}
@@ -495,11 +498,12 @@ function Local() {
           ))}
         </View>
       )}
+      <Botao altura={44} rotulo="Baixar modelos" icone={<Download size={15} color={c.fg} />} onPress={abreBaixarModelos} />
       <Text style={s.secao}>Modelos de texto</Text>
       {(st.models ?? []).filter((m: any) => m.kind === "chat").map((m: any) => {
         const ativo = sv.running && sv.path === m.path;
         return (
-          <Pressable key={m.path} onPress={() => !ativo && carrega(m)} style={[cartao, ativo && { borderColor: c.green }]}>
+          <Pressable key={m.path} onPress={() => !ativo && carrega(m)} style={[cartao, ativo && { borderColor: c.accentLine, backgroundColor: c.accentSoft }]}>
             <Text style={[s.txt, { fontSize: 14 }]}>{m.name}</Text>
             <Text style={s.faint}>{(m.size / 1e9).toFixed(1)} GB{m.ctx ? ` · ctx ${m.ctx}` : ""}{m.vision ? " · visão" : ""}{ativo ? " · carregado" : ""}</Text>
           </Pressable>

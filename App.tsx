@@ -4,7 +4,7 @@ import * as Device from "expo-device";
 import * as Notifications from "expo-notifications";
 import { StatusBar } from "expo-status-bar";
 import { Component, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Animated, AppState, BackHandler, Linking, Platform, Pressable, RefreshControl, ScrollView, SectionList, useWindowDimensions, View } from "react-native";
+import { Animated, AppState, BackHandler, Linking, PanResponder, Platform, Pressable, RefreshControl, ScrollView, SectionList, useWindowDimensions, View } from "react-native";
 import { Text, TextInput } from "./src/Texto";
 import { SafeAreaProvider, useSafeAreaInsets } from "react-native-safe-area-context";
 import { api, base, carregaPar, escolheBase, salvaPar, viaLan } from "./src/api";
@@ -13,7 +13,10 @@ import Abertura from "./src/Abertura";
 import CarregandoModelo from "./src/Carregando";
 import Comparar from "./src/Comparar";
 import Video from "./src/Video";
-import { Abaixo, Balanca, Balao, Busca, Chip, Codigo, Divide, Globo, Filme, Imagem, Info, Menu, Novo, PainelDir, Pasta as IconePasta, Prancheta,
+import { BaixarModelosRaiz, abreBaixarModelos } from "./src/BaixarModelos";
+import Configuracoes from "./src/Configuracoes";
+import { Toasts } from "./src/ui";
+import { Gear, Abaixo, Balanca, Balao, Busca, Chip, Codigo, Divide, Globo, Filme, Imagem, Info, Menu, Novo, PainelDir, Pasta as IconePasta, Prancheta,
          Pulso, Ramo, Sair, Seta, Term, Voltar } from "./src/icones";
 import Imagens from "./src/Imagens";
 import LeitorQR from "./src/LeitorQR";
@@ -87,18 +90,23 @@ const pasta = (label?: string) => label?.split(/[\\/]/).filter(Boolean).pop() ||
 
 export default function App() {
   const [abertura, setAbertura] = useState(true); // só na partida a frio: o app voltando do fundo não repete
+  const [config, setConfig] = useState(false);
+  const [aparencia, setAparencia] = useState(0); // tema/fonte trocados: a raiz remonta e relê as cores
   return (
     <SafeAreaProvider>
-      <Raiz />
+      <Raiz key={aparencia} onConfig={() => setConfig(true)} />
       <CarregandoModelo />
+      <Configuracoes aberta={config} onFecha={() => setConfig(false)} onAparencia={() => setAparencia((n) => n + 1)} />
+      <BaixarModelosRaiz />
       <Dialogos />
+      <Toasts />
       <NavegadorDoApp />
       {abertura && <Abertura onFim={() => setAbertura(false)} />}
     </SafeAreaProvider>
   );
 }
 
-function Raiz() {
+function Raiz({ onConfig }: { onConfig: () => void }) {
   const [pareado, setPareado] = useState<boolean | null>(null);
   const [pagina, setPagina] = useState<Pagina>("agent");
   const [focoCard, setFocoCard] = useState<{ id: number; projeto: string } | null>(null); // card do chat -> Board
@@ -244,7 +252,7 @@ function Raiz() {
           ) : pagina === "imagem" ? (
             <Imagens key={sessao} conv={conv} onCriada={criada} onTurno={turno} onAbreChat={(c, k) => abre(c, k as Pagina)} />
           ) : pagina === "video" ? (
-            <Video key={sessao} conv={conv} onCriada={criada} onTurno={turno} />
+            <Video key={sessao} conv={conv} onCriada={criada} onTurno={turno} onBaixarModelos={abreBaixarModelos} />
           ) : pagina === "comparar" ? (
             <Comparar key={sessao} conv={conv} onCriada={criada} onTurno={turno} />
           ) : pagina === "pesquisa" ? (
@@ -265,10 +273,17 @@ function Raiz() {
                      onAbreConv={(id) => { setDireita(false); carregaConvs().then((l) => { const cv = l.find((x) => x.id === id); if (cv) abre(cv, kindDe(cv.kind)); }); }} />
       <EscolhePasta aberta={seletor} atual={workspace} onFecha={() => setSeletor(false)}
                     onEscolhe={(p) => { setPastaNova(p); setSeletor(false); }} />
+      {/* Alças de borda: deslizar (ou tocar) para dentro abre a gaveta ou os painéis; fora do cabeçalho e do composer. */}
+      {!cheia && !gaveta && !direita && (
+        <>
+          <Alca lado="esq" onAbre={() => { setGaveta(true); carregaConvs(); }} />
+          <Alca lado="dir" onAbre={() => setDireita(true)} />
+        </>
+      )}
       <Gaveta aberta={gaveta} fecha={() => setGaveta(false)} pagina={pagina} convs={convs} atual={conv?.id} erro={erro}
               // Trocar de página só troca a lista: a gaveta fica aberta para escolher a conversa (Sites não tem conversa).
               onPagina={(p) => (SEM_CONVERSA(p) ? (setPagina(p), setSite(null), setFocoCard(null), setGaveta(false)) : abre(null, p, false))}
-              onConv={(c) => abre(c)} onNova={() => abre(null)}
+              onConv={(c) => abre(c)} onNova={() => abre(null)} onConfig={() => { setGaveta(false); onConfig(); }}
               onDesparear={() => salvaPar(null).then(() => { setGaveta(false); setPareado(false); })} />
     </View>
   );
@@ -278,14 +293,30 @@ const redondo = { width: 44, height: 44, borderRadius: 22, borderColor: c.line, 
                   alignItems: "center", justifyContent: "center" } as const;
 
 /** Gaveta do ChatGPT: busca + nova conversa, as páginas do Forja no topo e as conversas da página embaixo. */
-function Gaveta({ aberta, fecha, pagina, convs, atual, erro, onPagina, onConv, onNova, onDesparear }: {
+/** Zona invisível de 18 px na borda (top 96 a bottom 130) com a alça de 4×44 à mostra. */
+function Alca({ lado, onAbre }: { lado: "esq" | "dir"; onAbre: () => void }) {
+  const resp = useRef(PanResponder.create({
+    onStartShouldSetPanResponder: () => true,
+    onPanResponderRelease: (_, g) => {
+      const dentro = lado === "esq" ? g.dx : -g.dx;
+      if (dentro > 30 || (Math.abs(g.dx) < 6 && Math.abs(g.dy) < 6)) onAbre(); // arrastou para dentro, ou tocou
+    },
+  })).current;
+  return (
+    <View {...resp.panHandlers} style={{ position: "absolute", top: 96, bottom: 130, width: 18, [lado === "esq" ? "left" : "right"]: 0, justifyContent: "center" }}>
+      <View style={{ width: 4, height: 44, borderRadius: 2, backgroundColor: c.lineStrong, opacity: 0.7, marginLeft: lado === "esq" ? 3 : 11 }} />
+    </View>
+  );
+}
+
+function Gaveta({ aberta, fecha, pagina, convs, atual, erro, onPagina, onConv, onNova, onDesparear, onConfig }: {
   aberta: boolean; fecha: () => void; pagina: Pagina; convs: Conv[]; atual?: number; erro: string;
-  onPagina: (p: Pagina) => void; onConv: (c: Conv) => void; onNova: () => void; onDesparear: () => void;
+  onPagina: (p: Pagina) => void; onConv: (c: Conv) => void; onNova: () => void; onDesparear: () => void; onConfig: () => void;
 }) {
   const inset = useSafeAreaInsets();
   const { width } = useWindowDimensions();
   const largura = Math.min(width * 0.82, 360);
-  const x = useRef(new Animated.Value(-largura)).current;
+  const x = useState(() => new Animated.Value(-largura))[0];
   const [busca, setBusca] = useState("");
   // Sempre montada: animação nativa iniciada antes do mount não pegava e a gaveta ficava fora da tela.
   useEffect(() => {
@@ -358,6 +389,15 @@ function Gaveta({ aberta, fecha, pagina, convs, atual, erro, onPagina, onConv, o
             </Pressable>
           )}
         />
+        <Pressable onPress={onConfig}
+                   style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 16, paddingVertical: 12,
+                            borderTopColor: c.line, borderTopWidth: 1, backgroundColor: pressed ? c.surface : "transparent" })}>
+          <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: c.raised, alignItems: "center", justifyContent: "center" }}>
+            <Gear size={18} color={c.fg} />
+          </View>
+          <Text style={{ color: c.fg, fontSize: 15, flex: 1 }}>Configurações</Text>
+          <Seta size={16} color={c.faint} />
+        </Pressable>
         <Pressable onPress={desparear}
                    style={{ flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 16, paddingVertical: 12,
                             borderTopColor: c.line, borderTopWidth: 1 }}>
@@ -381,7 +421,7 @@ function GavetaDireita({ aberta, fecha, conv, onAbreConv }: { aberta: boolean; f
   const { width } = useWindowDimensions();
   const [painel, setPainel] = useState<PainelId | null>(null);
   const largura = painel ? width : Math.min(width * 0.82, 360); // o painel aberto usa a tela toda
-  const x = useRef(new Animated.Value(width)).current;
+  const x = useState(() => new Animated.Value(width))[0];
   useEffect(() => {
     Animated.timing(x, { toValue: aberta ? 0 : width, duration: 200, useNativeDriver: true }).start();
     if (!aberta) setPainel(null);

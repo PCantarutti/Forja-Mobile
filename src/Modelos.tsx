@@ -3,7 +3,7 @@ import { ActivityIndicator, Modal, Pressable, SectionList, View } from "react-na
 import { Text } from "./Texto";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { api } from "./api";
-import { Cubo } from "./icones";
+import { Check, Cubo } from "./icones";
 import { Deslizante } from "./ui";
 import { c, s } from "./tema";
 
@@ -17,8 +17,8 @@ export const chave = (e: Escolha) => e.path ?? `${e.provider}/${e.model}`;
 const ultima: Record<string, { title: string; erro?: string; data: Escolha[] }[]> = {};
 
 /** Folha de modelos: `max` = 1 escolhe e fecha; > 1 marca vários (Comparar). */
-export default function Modelos({ aberto, max = 1, marcados = [], soProvedor = false, onFecha, onEscolhe }: {
-  aberto: boolean; max?: number; marcados?: Escolha[]; soProvedor?: boolean;
+export default function Modelos({ aberto, max = 1, marcados = [], soProvedor = false, desligar, onFecha, onEscolhe }: {
+  aberto: boolean; max?: number; marcados?: Escolha[]; soProvedor?: boolean; desligar?: boolean; // desligar: 1ª linha "(desligado)"
   onFecha: () => void; onEscolhe: (e: Escolha[]) => void;
 }) {
   const inset = useSafeAreaInsets();
@@ -60,6 +60,11 @@ export default function Modelos({ aberto, max = 1, marcados = [], soProvedor = f
           <SectionList
             sections={secoes}
             keyExtractor={chave}
+            ListHeaderComponent={desligar ? (
+              <Pressable onPress={() => onEscolhe([{ provider: "", model: "", nome: "" }])} style={{ padding: 12, borderRadius: 12 }}>
+                <Text style={{ color: c.muted, fontSize: 15 }}>(desligado)</Text>
+              </Pressable>
+            ) : null}
             contentContainerStyle={{ paddingHorizontal: 8 }}
             stickySectionHeadersEnabled={false}
             renderSectionHeader={({ section }) => (
@@ -74,9 +79,9 @@ export default function Modelos({ aberto, max = 1, marcados = [], soProvedor = f
                 <Pressable onPress={() => alterna(item)}
                            style={{ flexDirection: "row", alignItems: "center", gap: 10, padding: 12, borderRadius: 12,
                                     backgroundColor: on ? c.raised : "transparent" }}>
-                  <Cubo size={16} color={on ? c.fg : c.faint} />
+                  <Cubo size={16} color={on ? c.accentText : c.faint} />
                   <Text style={{ flex: 1, color: c.fg, fontSize: 15 }} numberOfLines={1}>{item.nome}</Text>
-                  {on && <Text style={{ color: c.fg }}>✓</Text>}
+                  {on && <Check size={16} color={c.accentText} />}
                 </Pressable>
               );
             }}

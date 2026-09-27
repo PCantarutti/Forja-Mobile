@@ -35,7 +35,7 @@ const VB = "150 -240 960 1380";
 
 export default function Abertura({ onFim }: { onFim: () => void }) {
   const [t, setT] = useState(0);
-  const saida = useRef(new Animated.Value(1)).current;
+  const saida = useState(() => new Animated.Value(1))[0];
   const fim = useRef(false);
   const bateu = useRef(false);
   const { width, height } = useWindowDimensions();

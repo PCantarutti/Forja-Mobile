@@ -64,9 +64,9 @@ export default function LeitorQR({ onLido, dica, erro }: { onLido: (data: string
   const [tam, setTam] = useState<{ w: number; h: number } | null>(null);
   const [lido, setLido] = useState(false);
   const pos = useRef(BASE.map(() => new Animated.ValueXY())).current;
-  const rot = useRef(new Animated.Value(0)).current;
-  const esc = useRef(new Animated.Value(1)).current;
-  const pulso = useRef(new Animated.Value(1)).current; // respiração e "pop" da confirmação
+  const rot = useState(() => new Animated.Value(0))[0];
+  const esc = useState(() => new Animated.Value(1))[0];
+  const pulso = useState(() => new Animated.Value(1))[0]; // respiração e "pop" da confirmação
   const cam = useRef<CameraView>(null);
   const r = useRef({
     estado: "procurando" as "procurando" | "travando" | "lido",

@@ -24,7 +24,7 @@ export function Deslizante({ aberta, onFecha, onVoltar, children }:
   { aberta: boolean; onFecha: () => void; onVoltar?: () => void; children: ReactNode }) {
   const { height } = useWindowDimensions();
   const [montada, setMontada] = useState(aberta);
-  const a = useRef(new Animated.Value(0)).current;
+  const a = useState(() => new Animated.Value(0))[0];
   const entra = () => Animated.timing(a, { toValue: 1, duration: 240, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start();
   useEffect(() => {
     if (aberta) { if (montada) entra(); else setMontada(true); } // reabriu no meio da saída: só volta
@@ -356,7 +356,7 @@ export function Recolhivel({ titulo, sub, children, inicial = false }: { titulo:
 
 /** Chevron que gira 180° (seções recolhíveis). */
 export function Gira({ aberto, size = 14, color = c.muted }: { aberto: boolean; size?: number; color?: string }) {
-  const r = useRef(new Animated.Value(aberto ? 1 : 0)).current;
+  const r = useState(() => new Animated.Value(aberto ? 1 : 0))[0];
   useEffect(() => { Animated.timing(r, { toValue: aberto ? 1 : 0, duration: 150, easing: EASE, useNativeDriver: true }).start(); }, [aberto]);
   return (
     <Animated.View style={{ transform: [{ rotate: r.interpolate({ inputRange: [0, 1], outputRange: ["0deg", "180deg"] }) }] }}>
@@ -367,7 +367,7 @@ export function Gira({ aberto, size = 14, color = c.muted }: { aberto: boolean; 
 
 /** Ponto que pulsa enquanto roda (1 → 0,3 → 1 em 1,2 s); parado com "reduzir movimento". */
 export function Pulsa({ cor, lado = 7, ativo = true }: { cor: string; lado?: number; ativo?: boolean }) {
-  const o = useRef(new Animated.Value(1)).current;
+  const o = useState(() => new Animated.Value(1))[0];
   useEffect(() => {
     if (!ativo) return;
     let loop: Animated.CompositeAnimation | null = null;
@@ -424,7 +424,7 @@ export function toast(texto: string, desfazer?: () => void) { mostraToast?.({ te
 
 export function Toasts() {
   const [p, setP] = useState<PedidoToast | null>(null);
-  const o = useRef(new Animated.Value(0)).current;
+  const o = useState(() => new Animated.Value(0))[0];
   const inset = useSafeAreaInsets();
   useEffect(() => { mostraToast = setP; return () => { mostraToast = null; }; }, []);
   useEffect(() => {

@@ -606,7 +606,7 @@ function Triagem({ aberta, cards, onFecha, onAceitar, onRejeitar, onFim }: {
   const [fila, setFila] = useState<Issue[]>([]);
   const [k, setK] = useState(0);
   const [placar, setPlacar] = useState({ a: 0, r: 0 });
-  const dx = useRef(new Animated.Value(0)).current;
+  const dx = useState(() => new Animated.Value(0))[0];
   const [dxv, setDxv] = useState(0);
   useEffect(() => { if (aberta) { setFila(cards); setK(0); setPlacar({ a: 0, r: 0 }); dx.setValue(0); setDxv(0); } }, [aberta]);
   const atual = fila[k];
