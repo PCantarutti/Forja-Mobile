@@ -7,24 +7,27 @@ import WebView from "react-native-webview";
 import { api, base, enviaArquivo, lerAjustes, type Msg, salvaAjustes, urlImagem } from "./api";
 import type { Conv } from "./Chat";
 import { pergunta } from "./Dialogo";
-import { Cubo, Enviar, Parar, Voltar } from "./icones";
-import { type Destino, salva } from "./Imagens";
+import { Check, Clock, Cube, Download, Edit, Expandir, ExternalLink, Folder, Imagem, Play, Plus, Raio, Repetir, Seta, Sliders, Square, Trash,
+         Trocar, Voltar, X } from "./icones";
+import { AcaoGrade, BotaoEnviar, CampoSemente, type Destino, LinhaEstimativa, Miniatura, salva } from "./Imagens";
 import Liquido from "./Liquido";
 import { restante, velocidade } from "./progresso";
 import { useTeclado } from "./teclado";
 import { c, mono, s } from "./tema";
-import { Campo, Chip, Contador, Folha, Lista, Opcao, Seletor } from "./ui";
+import { Area, Botao, BotaoIcone, Campo, CartaoOpcao, CartaoProporcao, Chip, Contador, Deslizador, Folha, LinhaAjuste, Lista, Opcao, Quadrado, Radio,
+         Recolhivel, ResumoEstimativa, Selo, Seletor, num, toast } from "./ui";
 
 // Vídeo (Wan pelo stable-diffusion.cpp) = o motor dos lotes de imagem com conversa kind "video": mesmas rotas
 // /imagens/*, arquivos .webm. Espelha o VideoView do desktop no que cabe no celular.
 type Req = { nome?: string; modos?: string[]; multiplo?: number; resolucoes?: Record<string, [number, number]>; quadros_treino?: number };
-type ModeloVid = { path: string; name: string; params?: Record<string, any>; req?: Req; falta?: string[]; chave?: string; dim?: number };
+type ModeloVid = { path: string; name: string; size?: number; params?: Record<string, any>; req?: Req; falta?: string[]; chave?: string; dim?: number };
 type Lora = { path: string; name: string; wan?: boolean; dim?: number; passos?: number };
 type Tempo = { model: string; w: number; h: number; frames: number; passos: number; s_passo: number; s_total: number };
 type Opts = Record<string, any> & { steps: number; cfg: number; width: number; height: number; frames: number; fps: number;
                                     negative?: string; flow_shift?: number; high_noise_steps?: number; high_noise_cfg?: number;
                                     loras?: { path: string; peso: number }[] };
-type LocalVid = { video: Opts; video_models: ModeloVid[]; loras: Lora[]; tempos_video: Tempo[]; image_busy?: boolean; runtimes: any };
+type LocalVid = { video: Opts; video_models: ModeloVid[]; loras: Lora[]; tempos_video: Tempo[]; image_busy?: boolean; runtimes: any;
+                  gpu_video?: { nome?: string; gb?: number } };
 type Img = { path: string; seed: number; model_name?: string; status: string; progress?: number; preview?: string; com_previa?: boolean;
              restante?: number; s_passo?: number; error?: string; unidade?: string }; // unidade "quadro": ampliação
 type Tomada = { user?: Msg; msg: Msg; imgs: Img[] };
@@ -80,21 +83,28 @@ function estimar(tempos: Tempo[], chave: string | undefined, o: Opts): { s: numb
 const tempo = (sg: number) => (sg < 90 ? `${Math.round(sg)} s` : `${Math.round(sg / 60)} min`);
 const mesmo = (a: string, b: string) => a.replace(/\//g, "\\").toLowerCase() === b.replace(/\//g, "\\").toLowerCase();
 
-/** WebM no <video> do WebView: o Android toca, e não precisa de player nativo novo. `quadro` = só o 1º quadro, mudo. */
+/** WebM no <video> do WebView: o Android toca, e não precisa de player nativo novo. `quadro` = só o 1º quadro, mudo.
+ * No player (sem `quadro`), a barra de tempo é nossa: o vídeo manda currentTime/duration e tocar nele pausa. */
 const htmlVideo = (src: string, quadro: boolean) =>
-  `<html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>html,body{margin:0;background:#111;height:100%;overflow:hidden}` +
+  `<html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>html,body{margin:0;background:#000;height:100%;overflow:hidden}` +
   `video{width:100%;height:100%;object-fit:${quadro ? "cover" : "contain"}}</style></head><body>` +
-  `<video src="${quadro ? `${src}#t=0.1` : src}" ${quadro ? 'muted playsinline preload="metadata"' : "controls autoplay loop playsinline"}></video></body></html>`;
+  `<video id="v" src="${quadro ? `${src}#t=0.1` : src}" ${quadro ? 'muted playsinline preload="metadata"' : "autoplay loop playsinline"}></video>` +
+  (quadro ? "" : `<script>var v=document.getElementById("v");v.onclick=function(){v.paused?v.play():v.pause()};` +
+    `setInterval(function(){window.ReactNativeWebView&&window.ReactNativeWebView.postMessage(JSON.stringify({t:v.currentTime,d:v.duration||0}))},250);</script>`) +
+  `</body></html>`;
 
-function VideoWeb({ path, quadro }: { path: string; quadro?: boolean }) {
+function VideoWeb({ path, quadro, onTempo, web }: { path: string; quadro?: boolean; onTempo?: (t: number, d: number) => void; web?: React.Ref<WebView> }) {
   return (
-    <WebView source={{ html: htmlVideo(urlImagem(path), !!quadro), baseUrl: base() }} originWhitelist={["*"]} style={{ flex: 1, backgroundColor: "#111" }}
+    <WebView ref={web} source={{ html: htmlVideo(urlImagem(path), !!quadro), baseUrl: base() }} originWhitelist={["*"]} style={{ flex: 1, backgroundColor: "#000" }}
              mediaPlaybackRequiresUserAction={false} allowsInlineMediaPlayback scrollEnabled={false} pointerEvents={quadro ? "none" : "auto"}
-             androidLayerType="hardware" />
+             androidLayerType="hardware"
+             onMessage={onTempo ? (e) => { try { const m = JSON.parse(e.nativeEvent.data); onTempo(m.t, m.d); } catch {} } : undefined} />
   );
 }
+const relogio = (sg: number) => `${Math.floor(sg / 60)}:${String(Math.floor(sg % 60)).padStart(2, "0")}`;
 
-export default function Video({ conv, onCriada, onTurno }: { conv: Conv | null; onCriada: (c: Conv) => void; onTurno: () => void }) {
+export default function Video({ conv, onCriada, onTurno, onBaixarModelos }:
+  { conv: Conv | null; onCriada: (c: Conv) => void; onTurno: () => void; onBaixarModelos?: () => void }) {
   const [convId, setConvId] = useState<number | null>(conv?.id ?? null);
   const [msgs, setMsgs] = useState<Msg[]>([]);
   const [st, setSt] = useState<LocalVid | null>(null);
@@ -287,6 +297,31 @@ export default function Video({ conv, onCriada, onTurno }: { conv: Conv | null; 
   const semRuntime = st && !st.runtimes?.sd?.installed;
   // Com uma geração rodando, a nova entra na fila do PC (um sd-cli por vez, na ordem).
   const pode = !!prompt.trim() && !!aj?.modelo && !semRuntime && refs.length >= precisa;
+  const nomeModelo = modelo ? (modelo.req?.nome ?? modelo.name) : "Modelo";
+  const tamanhos = tamanhosDe(modelo?.req);
+  const tamAtual = o ? tamanhos.find((t) => t.w === o.width && t.h === o.height) : undefined;
+  const [propAtual, qAtual] = tamAtual ? tamAtual.id.split(" ") : [null, null];
+  const qualidades = Object.keys(modelo?.req?.resolucoes ?? { "480p": 1 });
+  const gpu = st?.gpu_video?.gb ?? null;
+  const vram = o && modelo ? vramVideo(modelo, o) : null;
+  const passa = vram != null && gpu != null && vram > gpu;
+  const pre = o ? predefVideo(o, acelerando) : undefined;
+  const n = aj?.count ?? 1;
+  const tempoEst = est ? `${est.minimo ? "≥" : "~"}${tempo(est.s)} cada${n > 1 ? ` · ~${tempo(est.s * n)} os ${n}` : ""}` : null;
+
+  /** Predefinição do vídeo: Rápido liga o acelerador quando o modelo tem (4 passos, CFG 1); sem ele, 10 passos e CFG 5. */
+  function aplicaPredef(id: string) {
+    if (!o) return;
+    if (id === "rapido" && acelPronto) { if (!acelerando) alternaAcel(); return; }
+    const alvo = id === "rapido" ? { steps: 10, cfg: 5 } : id === "equilibrado" ? { steps: 20, cfg: 5 } : { steps: 30, cfg: 5 };
+    if (acelerando) {
+      const fora = (o.loras ?? []).filter((l) => !acelArquivos.some((p) => mesmo(p, l.path)));
+      antesDoAcel.current = null;
+      return mudaO({ ...alvo, loras: fora });
+    }
+    mudaO(alvo);
+  }
+  const estDe = (x: Partial<Opts>) => (o && st ? estimar(st.tempos_video ?? [], modelo?.chave, { ...o, ...x }) : null);
 
   return (
     <View style={{ flex: 1, paddingBottom: teclado }}>
@@ -300,19 +335,28 @@ export default function Video({ conv, onCriada, onTurno }: { conv: Conv | null; 
           <View style={{ flex: 1, justifyContent: "center", gap: 14, padding: 12 }}>
             <View style={{ alignItems: "center", gap: 6 }}>
               <Text style={{ color: c.fg, fontSize: 22, fontWeight: "600" }}>Que cena vamos filmar?</Text>
-              <Text style={[s.muted, { textAlign: "center" }]}>
-                {semRuntime ? "Instale o stable-diffusion.cpp em IA local no desktop." :
-                 st && !st.video_models.length ? "Nenhum modelo de vídeo no PC. Baixe um kit Wan em IA local › Vídeo, no desktop." :
-                 modelo && o ? `${modelo.req?.nome ?? modelo.name} · ${o.width}×${o.height} · ${seg} s${est ? ` · ${est.minimo ? "≥" : "~"}${tempo(est.s)} cada` : ""}` :
-                 "Descreva a cena, o movimento e a câmera."}
-              </Text>
+              {semRuntime || (st && !st.video_models.length) || !modelo || !o ? (
+                <Text style={[s.muted, { textAlign: "center" }]}>
+                  {semRuntime ? "Instale o stable-diffusion.cpp em IA local no desktop." :
+                   st && !st.video_models.length ? "Nenhum modelo de vídeo no PC. Baixe um kit Wan em IA local › Vídeo, no desktop." :
+                   "Descreva a cena, o movimento e a câmera."}
+                </Text>
+              ) : (
+                <Text style={{ color: c.muted, fontFamily: mono, fontSize: 12, textAlign: "center" }}>
+                  {nomeModelo} · {o.width}×{o.height} · {num(seg)} s{est ? ` · ${est.minimo ? "≥" : "~"}${tempo(est.s)} cada` : ""}
+                </Text>
+              )}
             </View>
             {!semRuntime && !!st?.video_models.length && MODOS.filter((m) => modos.includes(m.id)).map((m) => (
               <Pressable key={m.id} onPress={() => { muda({ modo: m.id }); setPrompt(m.exemplo); }}
-                         style={{ backgroundColor: c.surface, borderColor: c.line, borderWidth: 1, borderRadius: 16, padding: 14, gap: 4 }}>
-                <Text style={[s.txt, { fontWeight: "600" }]}>{m.rotulo}</Text>
-                <Text style={[s.faint, { fontSize: 12.5 }]}>{m.dica}</Text>
-                <Text style={[s.muted, { fontSize: 13, fontStyle: "italic" }]} numberOfLines={2}>“{m.exemplo}”</Text>
+                         style={({ pressed }) => ({ backgroundColor: pressed ? c.raised : c.surface, borderColor: c.line, borderWidth: 1, borderRadius: 16,
+                                                    padding: 14, flexDirection: "row", gap: 12 })}>
+                <Quadrado>{iconeModo(m.id, 17, c.muted)}</Quadrado>
+                <View style={{ flex: 1, gap: 3 }}>
+                  <Text style={{ color: c.fg, fontSize: 15, fontWeight: "600" }}>{m.rotulo}</Text>
+                  <Text style={[s.faint, { fontSize: 12.5 }]}>{m.dica}</Text>
+                  <Text style={[s.muted, { fontSize: 13, fontStyle: "italic" }]} numberOfLines={2}>“{m.exemplo}”</Text>
+                </View>
               </Pressable>
             ))}
           </View>
@@ -322,7 +366,7 @@ export default function Video({ conv, onCriada, onTurno }: { conv: Conv | null; 
                       onContinua={() => comVram((confirm) => api.post(`/imagens/${item.msg.id}/continuar`, { confirm }).then(carrega), "continuar")} />
         )}
       />
-      {!!erro && <Text style={[s.muted, { color: c.red, paddingHorizontal: 14 }]} onPress={() => setErro("")}>{erro}</Text>}
+      {!!erro && <Text style={[s.muted, { color: c.err, paddingHorizontal: 14 }]} onPress={() => setErro("")}>{erro}</Text>}
       <View style={{ paddingHorizontal: 12, paddingTop: 6, paddingBottom: teclado ? 8 : Math.max(inset.bottom, 10) }}>
         {modos.length > 1 && (
           <View style={{ flexDirection: "row", gap: 6, marginBottom: 8 }}>
@@ -330,8 +374,9 @@ export default function Video({ conv, onCriada, onTurno }: { conv: Conv | null; 
               const on = aj?.modo === m.id;
               return (
                 <Pressable key={m.id} onPress={() => muda({ modo: m.id })}
-                           style={{ flex: 1, alignItems: "center", paddingVertical: 8, borderRadius: 12, borderWidth: 1,
-                                    borderColor: on ? c.fg : c.line, backgroundColor: on ? c.raised : "transparent" }}>
+                           style={{ flex: 1, height: 40, flexDirection: "row", gap: 6, alignItems: "center", justifyContent: "center", borderRadius: 12,
+                                    borderWidth: 1, borderColor: on ? c.accentLine : c.line, backgroundColor: on ? c.accentSoft : "transparent" }}>
+                  {iconeModo(m.id, 14, on ? c.accentText : c.muted)}
                   <Text style={{ color: on ? c.fg : c.muted, fontSize: 13, fontWeight: on ? "600" : "400" }}>{m.rotulo}</Text>
                 </Pressable>
               );
@@ -340,100 +385,192 @@ export default function Video({ conv, onCriada, onTurno }: { conv: Conv | null; 
         )}
         <View style={{ backgroundColor: c.surface, borderColor: c.line, borderWidth: 1, borderRadius: 24, padding: 8, gap: 6 }}>
           {precisa > 0 && (
-            <View style={{ flexDirection: "row", gap: 8, paddingHorizontal: 4 }}>
-              {Array.from({ length: precisa }, (_, i) => (
-                <Pressable key={i} onPress={() => (refs[i] ? setRefs((x) => x.filter((_, j) => j !== i)) : quadro(i))}
-                           style={{ width: 64, height: 64, borderRadius: 10, backgroundColor: c.raised, borderColor: c.line, borderWidth: 1,
-                                    alignItems: "center", justifyContent: "center", overflow: "hidden" }}>
-                  {refs[i] ? <Image source={{ uri: urlImagem(refs[i]) }} style={{ width: "100%", height: "100%" }} /> :
-                    <Text style={[s.faint, { fontSize: 11, textAlign: "center" }]}>{precisa === 1 ? "imagem" : i ? "fim" : "início"}{"\n"}+</Text>}
-                </Pressable>
-              ))}
+            <View style={{ flexDirection: "row", gap: 8, paddingHorizontal: 4, paddingTop: 4, alignItems: "center" }}>
+              {Array.from({ length: precisa }, (_, i) => {
+                const rot = precisa === 1 ? "imagem" : i ? "fim" : "início";
+                return refs[i] ? (
+                  <View key={i} style={{ alignItems: "center", gap: 3 }}>
+                    <Miniatura uri={urlImagem(refs[i])} lado={64} onTira={() => setRefs((x) => x.filter((_, j) => j !== i))} />
+                    <Text style={{ color: c.faint, fontFamily: mono, fontSize: 10.5 }}>{rot}</Text>
+                  </View>
+                ) : (
+                  <Pressable key={i} onPress={() => quadro(i)}
+                             style={{ width: 64, height: 64, borderRadius: 10, borderColor: c.lineStrong, borderWidth: 1, borderStyle: "dashed",
+                                      alignItems: "center", justifyContent: "center", gap: 3 }}>
+                    <Plus size={15} color={c.muted} />
+                    <Text style={[s.faint, { fontSize: 11 }]}>{rot}</Text>
+                  </Pressable>
+                );
+              })}
               {precisa === 2 && refs.length === 2 && (
-                <Pressable onPress={() => setRefs(([a, b]) => [b, a])} style={[s.btnSec, { alignSelf: "center" }]}><Text style={s.btnSecTxt}>⇄</Text></Pressable>
+                <BotaoIcone lado={38} onPress={() => setRefs(([a, b]) => [b, a])}><Trocar size={16} color={c.fg} /></BotaoIcone>
               )}
             </View>
           )}
           <TextInput style={{ color: c.fg, fontSize: 15, maxHeight: 130, paddingHorizontal: 8, paddingTop: 6 }} value={prompt}
                      onChangeText={setPrompt} multiline placeholderTextColor={c.faint}
                      placeholder={precisa ? "O que acontece a partir da imagem" : "Descreva a cena, o movimento e a câmera"} />
+          {(tempoEst || vram != null) && (
+            <LinhaEstimativa onPress={() => setFolha("ajustes")} passa={passa} tempo={tempoEst ?? "sem medição"}
+                             vram={vram != null ? `${num(vram, 1)} GB de VRAM` : ""} />
+          )}
           <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6 }} style={{ flex: 1 }}>
-              <Chip rotulo={modelo ? (modelo.req?.nome ?? modelo.name) : "Modelo"} icone={<Cubo size={13} color={c.muted} />}
-                    cor={modelo?.falta?.length ? c.amber : undefined} onPress={() => setFolha("modelo")} max={150} />
+              <Chip rotulo={nomeModelo} icone={<Cube size={14} color={modelo?.falta?.length ? c.warn : c.muted} />}
+                    cor={modelo?.falta?.length ? c.warn : undefined} onPress={() => setFolha("modelo")} />
               {!!o && (
-                <Chip rotulo={`${o.width}×${o.height} · ${seg}s${(aj?.count ?? 1) > 1 ? ` · ×${aj?.count}` : ""}${est ? ` · ${est.minimo ? "≥" : "~"}${tempo(est.s * (aj?.count ?? 1))}` : ""}`}
-                      onPress={() => setFolha("ajustes")} max={230} />
+                <Chip rotulo={propAtual ? `${propAtual} · ${qAtual}` : `${o.width}×${o.height}`} icone={<Sliders size={14} color={c.muted} />}
+                      onPress={() => setFolha("ajustes")} />
               )}
-              {!!acel?.arquivos.length && <Chip rotulo={acelPronto ? "⚡" : "⚡ baixar"} ativo={acelerando} onPress={alternaAcel} />}
-              <Chip rotulo={melhorando ? "melhorando…" : "✨ Melhorar"} onPress={melhora} />
+              {!!o && <Chip rotulo={`${num(seg)} s${n > 1 ? ` · ×${n}` : ""}`} icone={<Clock size={14} color={c.muted} />} onPress={() => setFolha("ajustes")} />}
+              {!!acel?.arquivos.length && (
+                <Chip rotulo="Acelerar" ativo={acelerando} icone={<Raio size={14} color={acelerando ? c.accentText : c.muted} />} onPress={alternaAcel} />
+              )}
+              <Chip rotulo={melhorando ? "Melhorando…" : "Melhorar"} icone={<Edit size={14} color={c.muted} />} onPress={melhora} />
             </ScrollView>
-            <Pressable onPress={gera} disabled={!pode} style={[redondo, { opacity: pode ? 1 : 0.35 }]}><Enviar size={18} color="#000" /></Pressable>
+            <BotaoEnviar pode={pode} onPress={gera} />
           </View>
         </View>
       </View>
 
       <Folha aberta={folha === "modelo"} titulo="Modelo de vídeo" onFecha={() => setFolha(null)}>
-        <Lista valor={aj?.modelo ?? ""} onEscolhe={(p) => { const m = st?.video_models.find((x) => x.path === p); if (m) escolheModelo(m); }}
-               opcoes={(st?.video_models ?? []).map((m) => ({ id: m.path, rotulo: `${m.req?.nome ?? m.name}${m.falta?.length ? " !" : ""}`,
-                 dica: m.falta?.length ? `Faltam: ${m.falta.join(", ")}` : `${m.name} · ${(m.req?.modos ?? ["t2v"]).join(" · ")}` }))} />
+        <View style={{ gap: 8 }}>
+          {(st?.video_models ?? []).map((m) => {
+            const on = m.path === aj?.modelo;
+            const temAcel = !!st?.loras.some((l) => l.wan && l.dim === m.dim && (l.passos ?? 0) > 0) || (on && !!acel?.arquivos.length);
+            const e = o && st ? estimar(st.tempos_video ?? [], m.chave, o) : null;
+            return (
+              <Radio key={m.path} on={on} onPress={() => escolheModelo(m)}
+                     rodape={m.falta?.length ? (
+                       <View style={{ borderTopWidth: 1, borderTopColor: c.line, backgroundColor: c.warnSoft, paddingHorizontal: 12, paddingVertical: 8,
+                                      flexDirection: "row", alignItems: "center", gap: 10 }}>
+                         <Text style={{ color: c.warn, fontSize: 12.5, flex: 1 }}>Faltam: {m.falta.map((k) => ROTULO_ARQ[k] ?? k).join(", ")}</Text>
+                         <Botao rotulo="Baixar" altura={34} icone={<Download size={13} color={c.fg} />} onPress={() => { setFolha(null); onBaixarModelos?.(); }} />
+                       </View>
+                     ) : undefined}>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                  <Text style={{ color: c.fg, fontSize: 15, fontWeight: "600", flexShrink: 1 }} numberOfLines={1}>{m.req?.nome ?? m.name}</Text>
+                  {temAcel && <Raio size={13} color={c.accentText} />}
+                </View>
+                <Text style={{ color: c.faint, fontFamily: mono, fontSize: 11 }} numberOfLines={1}>{m.path.split(/[\\/]/).pop()}</Text>
+                <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 5, marginTop: 2 }}>
+                  {(m.req?.modos ?? ["t2v"]).map((x) => <Selo key={x} t={MODOS.find((y) => y.id === x)?.rotulo ?? x} />)}
+                  <Selo emMono t={[m.size ? `${num(m.size / 2 ** 30, 1)} GB` : "", e ? `${e.minimo ? "≥" : "~"}${tempo(e.s)}` : ""].filter(Boolean).join(" · ")} />
+                </View>
+              </Radio>
+            );
+          })}
+        </View>
+        <Text style={[s.faint, { fontSize: 12 }]}>Escolher um modelo traz os ajustes sugeridos dele (passos, CFG, tamanho, duração).</Text>
       </Folha>
 
       {aj && o && (
-        <Folha aberta={folha === "ajustes"} titulo="Ajustes do vídeo" onFecha={() => setFolha(null)}>
-          <Campo rotulo="Modo">
-            <Seletor opcoes={MODOS.filter((m) => modos.includes(m.id)).map((m) => ({ id: m.id, rotulo: m.rotulo }))} valor={aj.modo} onMuda={(v) => muda({ modo: v })} />
+        <Folha aberta={folha === "ajustes"} titulo="Ajustes do vídeo" onFecha={() => setFolha(null)}
+               fixo={<ResumoEstimativa gpu={gpu} vram={vram} tempo={tempoEst}
+                                       linha={`${o.width}×${o.height} · ${o.frames} quadros · ${o.fps} fps · ${o.steps} passos`}
+                                       estouro="Passa da VRAM da GPU: o sd.cpp descarrega partes para a RAM e fica bem mais lento." />}>
+          <Campo rotulo="Predefinição">
+            <View style={{ flexDirection: "row", gap: 8 }}>
+              {[{ id: "rapido", nome: "Rápido", sub: acelPronto ? "4 passos" : "10 passos", x: acelPronto ? { steps: 4, cfg: 1 } : { steps: 10, cfg: 5 } },
+                { id: "equilibrado", nome: "Equilibrado", sub: "20 passos", x: { steps: 20, cfg: 5 } },
+                { id: "qualidade", nome: "Qualidade", sub: "30 passos", x: { steps: 30, cfg: 5 } }].map((p) => {
+                const e = estDe(p.x);
+                return <CartaoOpcao key={p.id} titulo={p.nome} sub={p.sub} extra={e ? `${e.minimo ? "≥" : "~"}${tempo(e.s)}` : undefined}
+                                    on={pre === p.id} onPress={() => aplicaPredef(p.id)} />;
+              })}
+            </View>
           </Campo>
-          <Campo rotulo="Tamanho">
-            <Seletor opcoes={tamanhosDe(modelo?.req).map((t) => ({ id: t.id, rotulo: `${t.id} · ${t.w}×${t.h}` }))}
-                     valor={tamanhosDe(modelo?.req).find((t) => t.w === o.width && t.h === o.height)?.id ?? ""}
-                     onMuda={(id) => { const t = tamanhosDe(modelo?.req).find((x) => x.id === id)!; mudaO({ width: t.w, height: t.h }); }} />
+          {modos.length > 1 && (
+            <Campo rotulo="Modo">
+              <Seletor cheio opcoes={MODOS.filter((m) => modos.includes(m.id)).map((m) => ({ id: m.id, rotulo: m.rotulo }))} valor={aj.modo} onMuda={(v) => muda({ modo: v })} />
+            </Campo>
+          )}
+          <Campo rotulo="Tamanho" direita={
+            <View style={{ flexDirection: "row", gap: 6 }}>
+              {["480p", "720p"].map((q) => (
+                <Pressable key={q} disabled={!qualidades.includes(q)} onPress={() => {
+                  const t = tamanhos.find((x) => x.id === `${propAtual ?? "16:9"} ${q}`);
+                  if (t) mudaO({ width: t.w, height: t.h });
+                }} style={{ height: 28, paddingHorizontal: 10, borderRadius: 999, justifyContent: "center", opacity: qualidades.includes(q) ? 1 : 0.35,
+                            backgroundColor: qAtual === q ? c.accent : c.raised }}>
+                  <Text style={{ color: qAtual === q ? c.accentFg : c.muted, fontFamily: mono, fontSize: 12 }}>{q}</Text>
+                </Pressable>
+              ))}
+            </View>
+          }>
+            <View style={{ flexDirection: "row", gap: 8 }}>
+              {PROPORCOES.map((p) => {
+                const t = tamanhos.find((x) => x.id === `${p} ${qAtual ?? qualidades[0]}`);
+                return t ? <CartaoProporcao key={p} cheio rotulo={p} w={t.w} h={t.h} px={`${t.w}×${t.h}`} on={propAtual === p}
+                                            onPress={() => mudaO({ width: t.w, height: t.h })} /> : null;
+              })}
+            </View>
           </Campo>
-          <Campo rotulo="Duração" dica={`${o.frames} quadros a ${o.fps} fps. Acima do treino do modelo o Wan degrada.`}>
-            <Seletor opcoes={duracoesDe(modelo?.req, o.fps).map((d) => ({ id: String(d), rotulo: `${d} s` }))}
+          <Campo rotulo="Duração" dica={`${o.frames} quadros a ${o.fps} fps. Acima do treino do modelo (${num(Math.round(((modelo?.req?.quadros_treino ?? 81) - 1) / (o.fps || 16) * 10) / 10)} s) o Wan degrada.`}>
+            <Seletor cheio opcoes={duracoesDe(modelo?.req, o.fps).map((d) => ({ id: String(d), rotulo: `${num(d)} s` }))}
                      valor={String(duracoesDe(modelo?.req, o.fps).find((d) => quadrosDe(d, o.fps) === o.frames) ?? "")}
                      onMuda={(v) => mudaO({ frames: quadrosDe(Number(v), o.fps) })} />
           </Campo>
-          <Campo rotulo="Variações"><Contador valor={aj.count} min={1} max={20} onMuda={(n) => muda({ count: n })} /></Campo>
+          <LinhaAjuste rotulo="Variações" sub="Cada uma soma o tempo inteiro">
+            <Contador valor={aj.count} min={1} max={20} onMuda={(k) => muda({ count: k })} />
+          </LinhaAjuste>
           <Campo rotulo="Negativo">
-            <TextInput style={s.input} value={o.negative ?? ""} onChangeText={(t) => mudaO({ negative: t })} multiline
-                       placeholder="O que evitar no vídeo" placeholderTextColor={c.faint} />
+            <Area valor={o.negative ?? ""} onMuda={(t) => mudaO({ negative: t })} placeholder="O que evitar no vídeo" />
           </Campo>
-          <Campo rotulo="Quadros" dica="Sempre 4k+1."><Contador valor={o.frames} min={5} max={241} passo={4} onMuda={(n) => mudaO({ frames: n })} /></Campo>
-          <Campo rotulo="FPS"><Contador valor={o.fps} min={8} max={30} onMuda={(n) => mudaO({ fps: n })} /></Campo>
-          <Campo rotulo="Passos"><Contador valor={o.steps} min={1} max={100} onMuda={(n) => mudaO({ steps: n })} /></Campo>
-          <Campo rotulo="CFG"><Contador valor={o.cfg} min={0} max={20} passo={0.5} onMuda={(n) => mudaO({ cfg: n })} /></Campo>
-          <Campo rotulo="Flow shift" dica="0 = automático."><Contador valor={o.flow_shift ?? 0} min={0} max={20} passo={0.5} onMuda={(n) => mudaO({ flow_shift: n })} /></Campo>
-          {(o.high_noise_steps ?? 0) !== 0 && (
-            <Campo rotulo="Passos do HighNoise" dica="-1 = o sd.cpp divide entre os dois modelos.">
-              <Contador valor={o.high_noise_steps ?? -1} min={-1} max={50} onMuda={(n) => mudaO({ high_noise_steps: n })} />
-            </Campo>
-          )}
-          {!!st?.loras.filter((l) => l.wan && l.dim === modelo?.dim).length && (
-            <Campo rotulo="LoRAs">
-              {st!.loras.filter((l) => l.wan && l.dim === modelo?.dim).map((l) => {
-                const on = o.loras?.find((x) => mesmo(x.path, l.path));
-                return (
-                  <Opcao key={l.path} rotulo={l.name} valor={!!on} dica={on ? `peso ${on.peso}` : undefined}
-                         onMuda={(v) => mudaO({ loras: v ? [...(o.loras ?? []), { path: l.path, peso: 1 }] : (o.loras ?? []).filter((x) => !mesmo(x.path, l.path)) })} />
-                );
-              })}
-            </Campo>
-          )}
-          <Campo rotulo="Sementes"><Seletor opcoes={SEMENTES} valor={aj.seed_mode} onMuda={(v) => muda({ seed_mode: v })} /></Campo>
-          {aj.seed_mode !== "aleatoria" && (
-            <Campo rotulo="Semente base" dica="0 = escolhe uma ao acaso."><Contador valor={aj.seed} min={0} max={2147483647} onMuda={(n) => muda({ seed: n })} /></Campo>
-          )}
+          <Recolhivel titulo="Avançado" sub={`${o.steps} passos · CFG ${num(o.cfg)} · ${o.fps} fps`}>
+            <Deslizador rotulo="Passos" valor={o.steps} min={1} max={50} onMuda={(k) => mudaO({ steps: k })}
+                        dica={acelerando ? "O acelerador está ligado: acima de 8 passos ele perde o sentido." : undefined} />
+            <Deslizador rotulo="CFG" valor={o.cfg} min={0} max={12} passo={0.5} onMuda={(k) => mudaO({ cfg: k })} />
+            <Deslizador rotulo="Flow shift" valor={o.flow_shift ?? 0} min={0} max={12} passo={0.5} onMuda={(k) => mudaO({ flow_shift: k })}
+                        fmt={(k) => (k ? num(k) : "auto")} dica="0 = automático." />
+            <Deslizador rotulo="FPS" valor={o.fps} min={8} max={30} onMuda={(k) => mudaO({ fps: k, frames: quadrosDe(seg, k) })}
+                        dica={`${o.frames} quadros (sempre 4k+1). Mais fps com a mesma duração pede mais quadros.`} />
+            {(o.high_noise_steps ?? 0) !== 0 && (
+              <Deslizador rotulo="Passos do HighNoise" valor={o.high_noise_steps ?? -1} min={-1} max={50} onMuda={(k) => mudaO({ high_noise_steps: k })}
+                          fmt={(k) => (k < 0 ? "auto" : String(k))} dica="-1 = o sd.cpp divide entre os dois modelos." />
+            )}
+            {!!st?.loras.filter((l) => l.wan && l.dim === modelo?.dim).length && (
+              <Campo rotulo="LoRAs">
+                <View style={{ gap: 12 }}>
+                  {st!.loras.filter((l) => l.wan && l.dim === modelo?.dim).map((l) => {
+                    const on = o.loras?.find((x) => mesmo(x.path, l.path));
+                    const eAcel = acelArquivos.some((p) => mesmo(p, l.path));
+                    return (
+                      <Opcao key={l.path} rotulo={l.name} valor={!!on} sub={[eAcel ? "acelerador" : "", on ? `peso ${num(on.peso)}` : ""].filter(Boolean).join(" · ") || undefined}
+                             onMuda={(v) => mudaO({ loras: v ? [...(o.loras ?? []), { path: l.path, peso: 1 }] : (o.loras ?? []).filter((x) => !mesmo(x.path, l.path)) })} />
+                    );
+                  })}
+                </View>
+              </Campo>
+            )}
+            <Campo rotulo="Sementes"><Seletor cheio opcoes={SEMENTES} valor={aj.seed_mode} onMuda={(v) => muda({ seed_mode: v })} /></Campo>
+            {aj.seed_mode !== "aleatoria" && <CampoSemente valor={aj.seed} onMuda={(k) => muda({ seed: k })} />}
+          </Recolhivel>
         </Folha>
       )}
 
       <Foco fila={fila} i={foco} onI={setFoco} onFecha={() => setFoco(null)} onAcao={acao} onFechaEAcao={(path, body) => { setFoco(null); acao(path, body); }}
-            onSemente={(n) => { muda({ seed: n, seed_mode: "fixa", count: 1 }); setFoco(null); }} onErro={setErro} />
+            onSemente={(k) => { muda({ seed: k, seed_mode: "fixa", count: 1 }); setFoco(null); }} onErro={setErro} />
     </View>
   );
 }
 
-const redondo = { width: 36, height: 36, borderRadius: 18, backgroundColor: c.fg, alignItems: "center" as const, justifyContent: "center" as const };
+const ROTULO_ARQ: Record<string, string> = { vae: "VAE", t5xxl: "umt5-xxl", clip_l: "clip_l", llm: "codificador", clip_vision: "CLIP Vision",
+  high_noise_model: "modelo HighNoise" };
+const iconeModo = (id: string, size: number, color: string) =>
+  id === "t2v" ? <Edit size={size} color={color} /> : id === "i2v" ? <Imagem size={size} color={color} /> : <Trocar size={size} color={color} />;
+
+// ponytail: VRAM provisória (peso do modelo + ativações proporcionais a w·h·quadros); trocar por medição quando o PC expuser.
+function vramVideo(m: ModeloVid, o: Opts) {
+  const gb = (m.size ?? 0) / 2 ** 30;
+  return gb + 1.5 * ((o.width * o.height * o.frames) / (832 * 480 * 81));
+}
+function predefVideo(o: Opts, acelerando: boolean) {
+  if (acelerando) return "rapido";
+  if (o.cfg !== 5) return undefined;
+  return o.steps === 10 ? "rapido" : o.steps === 20 ? "equilibrado" : o.steps === 30 ? "qualidade" : undefined;
+}
+
 
 function TomadaView({ t, onFoco, onAcao, onReaproveita, onContinua }: {
   t: Tomada; onFoco: (i: Img) => void; onAcao: (path: string, body?: unknown) => void; onReaproveita: () => void; onContinua: () => void;
@@ -460,7 +597,7 @@ function TomadaView({ t, onFoco, onAcao, onReaproveita, onContinua }: {
         {[o.width && `${o.width}×${o.height}`, o.frames && `${Math.round(((o.frames - 1) / (o.fps || 16)) * 10) / 10} s · ${o.fps} fps`,
           o.steps && `${o.steps} passos`, amp && `ampliado ${amp.fator}×`, o.loras?.length && `${o.loras.length} LoRA`, atual?.model_name]
           .filter(Boolean).map((x) => (
-            <Text key={String(x)} style={{ color: c.faint, fontSize: 11.5, backgroundColor: c.raised, borderRadius: 8, paddingHorizontal: 7, paddingVertical: 2 }}>{x}</Text>
+            <Text key={String(x)} style={{ color: c.faint, fontFamily: mono, fontSize: 11.5, backgroundColor: c.raised, borderRadius: 5, overflow: "hidden", paddingHorizontal: 7, paddingVertical: 2 }}>{x}</Text>
           ))}
       </View>
       {/* Um vídeo por vez, na proporção dele; as variações passam de lado (e empilham por trás, como nas imagens). */}
@@ -485,11 +622,11 @@ function TomadaView({ t, onFoco, onAcao, onReaproveita, onContinua }: {
                         {pronto(img) && (
                           <View style={{ position: "absolute", left: 10, top: 10, width: 34, height: 34, borderRadius: 17, backgroundColor: "#000a",
                                          alignItems: "center", justifyContent: "center" }}>
-                            <Text style={{ color: "#fff", fontSize: 14, marginLeft: 2 }}>▶</Text>
+                            <Play size={15} color="#fff" />
                           </View>
                         )}
                         {img.status === "mantida" && (
-                          <Text style={{ position: "absolute", right: 10, top: 12, color: "#6ee7b7", fontSize: 12, fontWeight: "600",
+                          <Text style={{ position: "absolute", right: 10, top: 12, color: c.ok, fontSize: 12, fontWeight: "600",
                                          backgroundColor: "#000a", borderRadius: 8, paddingHorizontal: 7, paddingVertical: 3 }}>mantido</Text>
                         )}
                         {(!pronto(img) || rodando) && !!ROTULO[img.status] && (
@@ -501,7 +638,7 @@ function TomadaView({ t, onFoco, onAcao, onReaproveita, onContinua }: {
                             </Text>
                             {img.status === "gerando" && (
                               <View style={{ height: 3, backgroundColor: c.line, borderRadius: 2, marginTop: 5 }}>
-                                <View style={{ height: 3, width: `${Math.round((img.progress ?? 0) * 100)}%`, backgroundColor: c.fg, borderRadius: 2 }} />
+                                <View style={{ height: 3, width: `${Math.round((img.progress ?? 0) * 100)}%`, backgroundColor: c.accent, borderRadius: 2 }} />
                               </View>
                             )}
                           </View>
@@ -517,26 +654,22 @@ function TomadaView({ t, onFoco, onAcao, onReaproveita, onContinua }: {
           <View style={{ flexDirection: "row", justifyContent: "center", gap: 5, marginTop: 8 }}>
             {t.imgs.map((i, k) => (
               <View key={k} style={{ width: k === idx ? 14 : 6, height: 6, borderRadius: 3,
-                                     backgroundColor: k === idx ? c.fg : i.status === "descartada" ? c.line : c.faint }} />
+                                     backgroundColor: k === idx ? c.accent : i.status === "descartada" ? c.line : c.faint }} />
             ))}
           </View>
         )}
       </View>
       <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
-        {rodando && (
-          <Pressable style={[s.btnSec, { flexDirection: "row", gap: 6, alignItems: "center" }]} onPress={() => onAcao(`/imagens/${t.msg.id}/cancelar`)}>
-            <Parar size={13} /><Text style={s.btnSecTxt}>Cancelar</Text>
-          </Pressable>
-        )}
-        {!rodando && refazer > 0 && <Pressable style={s.btnSec} onPress={onContinua}><Text style={s.btnSecTxt}>Gerar as que faltaram ({refazer})</Text></Pressable>}
-        {!rodando && !amp && <Pressable style={s.btnSec} onPress={onReaproveita}><Text style={s.btnSecTxt}>Reaproveitar</Text></Pressable>}
+        {rodando && <Botao rotulo="Cancelar" icone={<Square size={12} color={c.fg} />} onPress={() => onAcao(`/imagens/${t.msg.id}/cancelar`)} />}
+        {!rodando && refazer > 0 && <Botao rotulo={`Gerar as que faltaram (${refazer})`} icone={<Repetir size={14} color={c.fg} />} onPress={onContinua} />}
+        {!rodando && !amp && <Botao rotulo="Reaproveitar" icone={<Repetir size={14} color={c.fg} />} onPress={onReaproveita} />}
       </View>
     </View>
   );
 }
 
 /** Player em tela cheia: anda por todos os vídeos prontos. Manter e Descartar já passam ao próximo (triagem com
- * o polegar, como M/X no desktop); salvar, ampliar e semente ficam na linha de baixo. */
+ * o polegar, como M/X no desktop); salvar, ampliar e semente ficam na grade de baixo. */
 function Foco({ fila, i, onI, onFecha, onAcao, onFechaEAcao, onSemente, onErro }: {
   fila: { img: Img; mid: number; t: Tomada }[]; i: number | null; onI: (i: number) => void; onFecha: () => void;
   onAcao: (path: string, body?: unknown) => Promise<unknown>; onFechaEAcao: (path: string, body?: unknown) => void;
@@ -547,12 +680,16 @@ function Foco({ fila, i, onI, onFecha, onAcao, onFechaEAcao, onSemente, onErro }
   const [salvar, setSalvar] = useState(false);
   const [amp, setAmp] = useState<{ modelos: { path: string; name: string }[]; ffmpeg: string } | null>(null);
   const [cfgAmp, setCfgAmp] = useState({ fator: 2, modelo: "", suavizar: false });
+  const [tempoV, setTempoV] = useState({ t: 0, d: 0 });
+  const [larguraBarra, setLarguraBarra] = useState(0);
+  const web = useRef<WebView>(null);
   useEffect(() => {
     if (!ampliar || amp) return;
-    api.get<{ no_disco: { path: string; name: string }[]; ffmpeg: string }>("/local/video/ampliadores", 20000)
+    api.get<{ no_disco: { path: string; name: string; tipo?: string }[]; ffmpeg: string }>("/local/video/ampliadores", 20000)
       .then((r) => {
-        setAmp({ modelos: r.no_disco, ffmpeg: r.ffmpeg });
-        const x2 = r.no_disco.find((m) => /x2/i.test(m.name)) ?? r.no_disco[0];
+        const esrgan = r.no_disco.filter((m) => (m.tipo ?? "esrgan") === "esrgan");
+        setAmp({ modelos: esrgan, ffmpeg: r.ffmpeg });
+        const x2 = esrgan.find((m) => /x2/i.test(m.name)) ?? esrgan[0];
         setCfgAmp((c0) => ({ ...c0, modelo: x2?.path ?? "" }));
       }).catch((e) => onErro(e.message));
   }, [ampliar]);
@@ -563,53 +700,75 @@ function Foco({ fila, i, onI, onFecha, onAcao, onFechaEAcao, onSemente, onErro }
   const proximo = () => (k + 1 < fila.length ? onI(k + 1) : onFecha());
   async function paraDestino(d: Destino) {
     setSalvar(false);
-    try { const aviso = await salva([img.path], d, "video/webm"); if (aviso) pergunta("Vídeo salvo", aviso, [{ texto: "Ok" }]); }
+    try { const aviso = await salva([img.path], d, "video/webm"); if (aviso) toast(aviso); }
     catch (e: any) { if (!/cancel/i.test(String(e?.message))) onErro(e.message); }
   }
-  const redondoSec = { width: 44, height: 44, borderRadius: 22, borderWidth: 1, borderColor: c.line, alignItems: "center" as const, justifyContent: "center" as const };
+  const mantido = img.status === "mantida";
+  const seta = (dir: -1 | 1) => {
+    const ativa = dir < 0 ? k > 0 : k + 1 < fila.length;
+    return (
+      <BotaoIcone lado={44} fundo="transparent" borda={c.line} desabilitado={!ativa} onPress={() => onI(k + dir)}>
+        {dir < 0 ? <Voltar size={20} color={c.fg} /> : <Seta size={20} color={c.fg} />}
+      </BotaoIcone>
+    );
+  };
   return (
     <Modal visible animationType="slide" onRequestClose={onFecha} statusBarTranslucent>
       <View style={{ flex: 1, backgroundColor: "#000", paddingTop: inset.top }}>
         <View style={{ flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 8, paddingVertical: 6 }}>
-          <Pressable onPress={onFecha} hitSlop={10} style={{ padding: 10 }}><Voltar size={22} /></Pressable>
+          <BotaoIcone lado={44} fundo="transparent" onPress={onFecha}><X size={22} color={c.fg} /></BotaoIcone>
           <View style={{ flex: 1 }}>
             <Text style={{ color: c.fg, fontSize: 14 }} numberOfLines={1}>{t.user?.content ?? "Vídeo"}</Text>
             <Text style={{ color: c.faint, fontFamily: mono, fontSize: 11.5 }} numberOfLines={1}>
-              {k + 1}/{fila.length} · {img.model_name} · semente {img.seed}{o.width ? ` · ${o.width}×${o.height}` : ""}
+              {k + 1} de {fila.length} · {img.model_name} · semente {img.seed}{o.width ? ` · ${o.width}×${o.height}` : ""}
             </Text>
           </View>
-          {img.status === "mantida" && <Text style={{ color: "#6ee7b7", fontSize: 12, fontWeight: "600", marginRight: 8 }}>mantido</Text>}
+          {mantido && <Text style={{ color: c.ok, fontSize: 12, fontWeight: "600", marginRight: 8 }}>mantido</Text>}
         </View>
-        <View style={{ flex: 1 }}><VideoWeb key={img.path} path={img.path} /></View>
-        <View style={{ padding: 12, paddingBottom: inset.bottom + 12, gap: 12 }}>
+        {/* contido nos dois eixos (object-fit contain no <video>): um 9:16 não empurra o rodapé */}
+        <View style={{ flex: 1, minHeight: 0 }}>
+          <VideoWeb key={img.path} path={img.path} web={web} onTempo={(tt, d) => setTempoV({ t: tt, d })} />
+        </View>
+        <View style={{ paddingHorizontal: 14, paddingTop: 10, gap: 6 }}>
+          <Pressable onLayout={(e) => setLarguraBarra(e.nativeEvent.layout.width)} hitSlop={10}
+                     onPress={(e) => { if (tempoV.d && larguraBarra) web.current?.injectJavaScript(`v.currentTime=${(e.nativeEvent.locationX / larguraBarra) * tempoV.d};true;`); }}
+                     style={{ height: 3, borderRadius: 2, backgroundColor: c.line }}>
+            <View style={{ height: 3, borderRadius: 2, backgroundColor: c.accent, width: `${tempoV.d ? Math.min(100, (tempoV.t / tempoV.d) * 100) : 0}%` }} />
+          </Pressable>
+          <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
+            <Text style={{ color: c.faint, fontFamily: mono, fontSize: 11.5 }}>{relogio(tempoV.t)}</Text>
+            <Text style={{ color: c.faint, fontFamily: mono, fontSize: 11.5 }}>{relogio(tempoV.d)}</Text>
+          </View>
+        </View>
+        <View style={{ padding: 12, paddingBottom: inset.bottom + 12, gap: 10 }}>
           {/* Triagem: os dois botões grandes, e as setas para andar sem decidir. */}
           <View style={{ flexDirection: "row", gap: 8, alignItems: "center" }}>
-            <Pressable style={[redondoSec, k === 0 && { opacity: 0.3 }]} disabled={k === 0} onPress={() => onI(k - 1)}><Text style={{ color: c.fg, fontSize: 18 }}>‹</Text></Pressable>
-            <Pressable style={[s.btnSec, { flex: 1, alignItems: "center", paddingVertical: 12 }]}
-                       onPress={() => pergunta("Descartar vídeo", "Vai para descartadas e some depois de alguns dias.", [
-                         { texto: "Cancelar", estilo: "cancelar" },
-                         // descartado sai da fila: o mesmo índice já é o próximo
-                         { texto: "Descartar", estilo: "perigo", acao: () => { onAcao(`/imagens/${mid}/decidir`, { keep: [], apenas: [img.path] }); if (fila.length === 1) onFecha(); } }])}>
-              <Text style={s.btnSecTxt}>Descartar</Text>
-            </Pressable>
-            <Pressable style={[s.btn, { flex: 1, alignItems: "center", paddingVertical: 12 }, img.status === "mantida" && { opacity: 0.4 }]}
-                       disabled={img.status === "mantida"}
-                       onPress={() => { onAcao(`/imagens/${mid}/decidir`, { keep: [img.path], apenas: [img.path] }); proximo(); }}>
-              <Text style={s.btnTxt}>{img.status === "mantida" ? "Mantido" : "Manter"}</Text>
-            </Pressable>
-            <Pressable style={[redondoSec, k + 1 >= fila.length && { opacity: 0.3 }]} disabled={k + 1 >= fila.length} onPress={() => onI(k + 1)}><Text style={{ color: c.fg, fontSize: 18 }}>›</Text></Pressable>
+            {seta(-1)}
+            <Botao flex altura={48} rotulo="Descartar" icone={<Trash size={16} color={c.fg} />}
+                   onPress={() => pergunta("Descartar vídeo", "Vai para descartadas e some depois de alguns dias.", [
+                     { texto: "Cancelar", estilo: "cancelar" },
+                     // descartado sai da fila: o mesmo índice já é o próximo
+                     { texto: "Descartar", estilo: "perigo", acao: () => {
+                       onAcao(`/imagens/${mid}/decidir`, { keep: [], apenas: [img.path] });
+                       toast("Foi para descartadas. Some depois de alguns dias.");
+                       if (fila.length === 1) onFecha();
+                     } }])} />
+            <Botao flex primario altura={48} rotulo={mantido ? "Mantido" : "Manter"} icone={<Check size={16} color={c.accentFg} />}
+                   estilo={mantido && { opacity: 0.45 }} desabilitado={mantido}
+                   onPress={() => { onAcao(`/imagens/${mid}/decidir`, { keep: [img.path], apenas: [img.path] }); proximo(); }} />
+            {seta(1)}
           </View>
-          <View style={{ flexDirection: "row", gap: 8, justifyContent: "center" }}>
-            <Pressable style={s.btnSec} onPress={() => setSalvar(true)}><Text style={s.btnSecTxt}>Salvar</Text></Pressable>
-            {!o.ampliacao && <Pressable style={s.btnSec} onPress={() => setAmpliar(true)}><Text style={s.btnSecTxt}>Ampliar</Text></Pressable>}
-            <Pressable style={s.btnSec} onPress={() => onSemente(img.seed)}><Text style={s.btnSecTxt}>Refazer semente</Text></Pressable>
+          <View style={{ flexDirection: "row", gap: 6 }}>
+            <AcaoGrade altura={60} rotulo="Salvar" icone={<Download size={18} color={c.fg} />} onPress={() => setSalvar(true)} />
+            {!o.ampliacao && <AcaoGrade altura={60} rotulo="Ampliar" icone={<Expandir size={18} color={c.fg} />} onPress={() => setAmpliar(true)} />}
+            <AcaoGrade altura={60} rotulo="Refazer semente" icone={<Repetir size={18} color={c.fg} />} onPress={() => onSemente(img.seed)} />
           </View>
         </View>
         <Folha aberta={salvar} titulo="Salvar vídeo" onFecha={() => setSalvar(false)}>
           <Lista<Destino> valor={"" as Destino} onEscolhe={paraDestino} opcoes={[
-            { id: "galeria", rotulo: "Galeria", dica: "Junto dos vídeos da câmera (DCIM)" },
-            { id: "pasta", rotulo: "Escolher pasta…", dica: "Qualquer pasta do celular ou do cartão" },
-            { id: "compartilhar", rotulo: "Compartilhar…", dica: "WhatsApp, Drive, e-mail ou outro app" },
+            { id: "galeria", rotulo: "Galeria", dica: "Junto dos vídeos da câmera (DCIM)", icone: <Download size={17} color={c.muted} /> },
+            { id: "pasta", rotulo: "Escolher pasta…", dica: "Qualquer pasta do celular ou do cartão", icone: <Folder size={17} color={c.muted} /> },
+            { id: "compartilhar", rotulo: "Compartilhar…", dica: "WhatsApp, Drive, e-mail ou outro app", icone: <ExternalLink size={17} color={c.muted} /> },
           ]} />
         </Folha>
         <Folha aberta={ampliar} titulo="Ampliar vídeo" onFecha={() => setAmpliar(false)}>
@@ -617,17 +776,30 @@ function Foco({ fila, i, onI, onFecha, onAcao, onFechaEAcao, onSemente, onErro }
             <Text style={s.muted}>Falta o ffmpeg no PC: instale em Configurações › Runtime, no desktop.</Text>
           ) : (
             <>
-              <Campo rotulo="Fator"><Seletor opcoes={[{ id: "2", rotulo: "2×" }, { id: "4", rotulo: "4×" }]} valor={String(cfgAmp.fator)}
-                                             onMuda={(v) => setCfgAmp({ ...cfgAmp, fator: Number(v) })} /></Campo>
-              <Campo rotulo="Método" dica="ESRGAN fica mais nítido; Lanczos é rápido.">
-                <Seletor opcoes={[...amp.modelos.map((m) => ({ id: m.path, rotulo: m.name })), { id: "", rotulo: "Rápido (Lanczos)" }]}
-                         valor={cfgAmp.modelo} onMuda={(v) => setCfgAmp({ ...cfgAmp, modelo: v })} />
+              <Campo rotulo="Método" dica="IA roda na GPU do PC; Lanczos é instantâneo, sem inventar detalhe.">
+                <View style={{ gap: 8 }}>
+                  {[...amp.modelos.map((m) => ({ id: m.path, nome: m.name, dica: "IA (ESRGAN)", selo: "segundos" })),
+                    { id: "", nome: "Lanczos", dica: "Rápido, sem IA", selo: "instantâneo" }].map((m) => (
+                    <Radio key={m.id} on={cfgAmp.modelo === m.id} onPress={() => setCfgAmp({ ...cfgAmp, modelo: m.id })}
+                           direita={<Selo t={m.selo} emMono borda />}>
+                      <Text style={{ color: c.fg, fontSize: 14.5 }} numberOfLines={1}>{m.nome}</Text>
+                      <Text style={{ color: c.muted, fontSize: 12.5 }}>{m.dica}</Text>
+                    </Radio>
+                  ))}
+                </View>
+              </Campo>
+              <Campo rotulo="Fator">
+                <View style={{ flexDirection: "row", gap: 8 }}>
+                  {[2, 4].map((f) => (
+                    <CartaoOpcao key={f} altura={60} titulo={`${f}×`} on={cfgAmp.fator === f} onPress={() => setCfgAmp({ ...cfgAmp, fator: f })}
+                                 sub={o.width ? `${o.width * f}×${o.height * f}` : undefined} />
+                  ))}
+                </View>
               </Campo>
               <Opcao rotulo="Suavizar movimento" dica="Dobra os fps interpolando quadros." valor={cfgAmp.suavizar}
                      onMuda={(v) => setCfgAmp({ ...cfgAmp, suavizar: v })} />
-              <Pressable style={s.btn} onPress={() => { setAmpliar(false); onFechaEAcao(`/imagens/${mid}/ampliar`, { path: img.path, ...cfgAmp }); }}>
-                <Text style={s.btnTxt}>Ampliar {cfgAmp.fator}×</Text>
-              </Pressable>
+              <Botao primario altura={48} rotulo={`Ampliar ${cfgAmp.fator}×`} icone={<Expandir size={16} color={c.accentFg} />}
+                     onPress={() => { setAmpliar(false); onFechaEAcao(`/imagens/${mid}/ampliar`, { path: img.path, ...cfgAmp }); }} />
             </>
           )}
         </Folha>
