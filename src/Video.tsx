@@ -273,7 +273,7 @@ export default function Video({ conv, onCriada, onTurno, onBaixarModelos }:
     if (!r || r.canceled) return;
     try {
       const a = r.assets[0];
-      const { path } = await enviaArquivo<{ path: string }>("/imagens/referencia", { uri: a.uri, name: a.name, mimeType: a.mimeType });
+      const { path } = await enviaArquivo<{ path: string }>("/imagens/referencia?video=true", { uri: a.uri, name: a.name, mimeType: a.mimeType });
       setRefs((x) => { const n = [...x]; n[i] = path; return n.filter(Boolean); });
     } catch (e: any) { setErro(e.message); }
   }
