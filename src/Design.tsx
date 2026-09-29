@@ -189,7 +189,7 @@ export default function Design({ conv, onCriada, onTurno }: { conv: Conv | null;
   );
 
   return (
-    <View style={{ flex: 1 }}>
+    <View style={{ flex: 1, paddingBottom: teclado }}>
       <View style={{ flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 10, paddingVertical: 6, borderBottomColor: c.line, borderBottomWidth: 1 }}>
         {abaBtn("design", "Design")}
         {abaBtn("chat", "Chat")}
