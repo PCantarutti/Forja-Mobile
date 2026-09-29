@@ -16,13 +16,14 @@ import Video from "./src/Video";
 import { BaixarModelosRaiz, abreBaixarModelos } from "./src/BaixarModelos";
 import Configuracoes from "./src/Configuracoes";
 import { Toasts } from "./src/ui";
-import { Gear, Abaixo, Balanca, Balao, Busca, Chip, Codigo, Divide, Globo, Filme, Imagem, Info, Menu, Novo, PainelDir, Pasta as IconePasta, Prancheta,
+import { Gear, Abaixo, Balanca, Balao, Busca, Chip, Codigo, Divide, Globo, Filme, Imagem, Info, Menu, Novo, PainelDir, Pasta as IconePasta, Prancheta, Quadro,
          Pulso, Ramo, Sair, Seta, Term, Voltar } from "./src/icones";
 import Imagens from "./src/Imagens";
 import LeitorQR from "./src/LeitorQR";
 import Maestro from "./src/Maestro";
 import { Painel, PAINEIS, type PainelId } from "./src/Painel";
 import Pesquisa from "./src/Pesquisa";
+import Design from "./src/Design";
 import Board from "./src/Board";
 import { LogoMarca, LogoTexto } from "./src/Logo";
 import EscolhePasta, { nomePasta } from "./src/Pasta";
@@ -67,7 +68,7 @@ class Protecao extends Component<{ children: ReactNode; onVoltar: () => void }, 
   }
 }
 
-type Pagina = "chat" | "agent" | "maestro" | "imagem" | "video" | "comparar" | "pesquisa" | "board" | "sites";
+type Pagina = "chat" | "agent" | "maestro" | "imagem" | "video" | "comparar" | "pesquisa" | "design" | "board" | "sites";
 // As seções do Forja Desktop (Controls.tsx, SectionTabs), na mesma ordem, + os sites que o agente subiu.
 const PAGINAS: { id: Pagina; rotulo: string; Icone: typeof Balao }[] = [
   { id: "chat", rotulo: "Chat", Icone: Balao },
@@ -77,6 +78,7 @@ const PAGINAS: { id: Pagina; rotulo: string; Icone: typeof Balao }[] = [
   { id: "video", rotulo: "Vídeo", Icone: Filme },
   { id: "comparar", rotulo: "Comparar", Icone: Balanca },
   { id: "pesquisa", rotulo: "Pesquisa", Icone: Busca },
+  { id: "design", rotulo: "Design", Icone: Quadro },
   { id: "board", rotulo: "Board", Icone: Prancheta },
   { id: "sites", rotulo: "Sites", Icone: Globo },
 ];
@@ -258,6 +260,8 @@ function Raiz({ onConfig }: { onConfig: () => void }) {
             <Video key={sessao} conv={conv} onCriada={criada} onTurno={turno} onBaixarModelos={abreBaixarModelos} />
           ) : pagina === "comparar" ? (
             <Comparar key={sessao} conv={conv} onCriada={criada} onTurno={turno} />
+          ) : pagina === "design" ? (
+            <Design key={sessao} conv={conv} onCriada={criada} onTurno={turno} />
           ) : pagina === "pesquisa" ? (
             <Pesquisa key={sessao} conv={conv} onCriada={criada} onTurno={turno}
                       onAbre={(id) => carregaConvs().then((l) => abre(l.find((x) => x.id === id) ?? { id, title: "Discussão" }, "chat"))} />
