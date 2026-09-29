@@ -23,6 +23,7 @@ type Msg = {
 };
 type Comentario = { id: number; texto: string; fids: string[]; status: string; orfao: boolean };
 type Projeto = { conv_id: number; titulo: string; mensagens: Msg[]; total: number; atual: number; html: string;
+  rascunho?: { base: number; mudancas: number } | null;   // ajustes à mão feitos no PC, ainda sem versão
                  comentarios: Comentario[]; rodando: number | null };
 type Geracao = { message_id: number; status: string; modo?: string; secoes?: { nome: string; status: string }[] };
 
@@ -171,6 +172,11 @@ export default function Design({ conv, onCriada, onTurno }: { conv: Conv | null;
     } catch (e: any) { setErro(e.message); }
   }
 
+  async function rascunho(acao: "salvar" | "descartar") {
+    if (!p) return;
+    try { setP(await api.post<Projeto>(`/design/${p.conv_id}/rascunho/${acao}`, {})); } catch (e: any) { setErro(e.message); }
+  }
+
   async function ir(v: number) {
     if (!p || rodando || v < 1 || v > p.total) return;
     try { setP(await api.post<Projeto>(`/design/${p.conv_id}/ir`, { versao: v })); } catch (e: any) { setErro(e.message); }
@@ -198,6 +204,13 @@ export default function Design({ conv, onCriada, onTurno }: { conv: Conv | null;
         )}
       </View>
       {!!erro && <Text style={{ color: c.err, paddingHorizontal: 14, paddingTop: 8, fontSize: 13 }} onPress={() => setErro("")}>{erro}</Text>}
+      {!!p?.rascunho && (
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 14, paddingVertical: 6, backgroundColor: "#f59e0b1a" }}>
+          <Text style={{ color: "#fcd34d", fontSize: 13, flex: 1 }}>Rascunho · {p.rascunho.mudancas} {p.rascunho.mudancas === 1 ? "ajuste" : "ajustes"} sobre a v{p.rascunho.base}</Text>
+          <Pressable onPress={() => rascunho("salvar")} disabled={rodando} hitSlop={6}><Text style={{ color: c.accentText, fontSize: 13, fontWeight: "600" }}>Salvar versão</Text></Pressable>
+          <Pressable onPress={() => rascunho("descartar")} disabled={rodando} hitSlop={6}><Text style={{ color: c.muted, fontSize: 13 }}>Descartar</Text></Pressable>
+        </View>
+      )}
 
       <View style={{ flex: 1 }}>
         {aba === "design" && (p?.html ? (
