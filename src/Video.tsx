@@ -132,8 +132,12 @@ const htmlComparar = (src: string, cmp: Cmp, fps: number, t0: number, nomeAtual:
     `o.addEventListener("loadedmetadata",function(){segue(true)});setInterval(function(){segue(false)},50);` +
     (lado ? "" : `var b=document.getElementById("b");function poe(x){var c=Math.min(1,Math.max(0,x/innerWidth));` +
       `o.style.clipPath="inset(0 "+(1-c)*100+"% 0 0)";b.style.left=c*100+"%"}` +
-      `b.addEventListener("touchstart",function(e){e.preventDefault()},{passive:false});` +
-      `b.addEventListener("touchmove",function(e){e.preventDefault();poe(e.touches[0].clientX)},{passive:false});`) +
+      `var w=document.getElementById("w"),x0=null,movendo=false;` +
+      // no dedo, arrastar em qualquer ponto move a barra (a alça é só o sinal); toque parado continua tocando/pausando
+      `w.addEventListener("touchstart",function(e){x0=e.touches[0].clientX;movendo=e.target===b;if(movendo)e.preventDefault()},{passive:false});` +
+      `w.addEventListener("touchmove",function(e){var x=e.touches[0].clientX;if(!movendo&&Math.abs(x-x0)>8)movendo=true;` +
+      `if(movendo){e.preventDefault();poe(x)}},{passive:false});` +
+      `w.addEventListener("click",function(e){if(movendo){e.stopPropagation();e.preventDefault()}movendo=false},true);`) +
     `setInterval(function(){window.ReactNativeWebView&&window.ReactNativeWebView.postMessage(JSON.stringify({t:v.currentTime,d:v.duration||0}))},250);` +
     `</script></body></html>`;
 };
@@ -881,8 +885,12 @@ function Foco({ fila, i, onI, onFecha, onAcao, onAmpliar, onSemente }: {
   const [ampliar, setAmpliar] = useState(false);
   const [salvar, setSalvar] = useState(false);
   const [escolheCmp, setEscolheCmp] = useState(false);
-  const [cmp, setCmp] = useState<Cmp | null>(null);
+  const [cmp, setCmpBruto] = useState<Cmp | null>(null);
   const [tempoV, setTempoV] = useState({ t: 0, d: 0 });
+  // De onde a comparação começa: fixo no momento em que ela liga ou troca de modo. Ligado ao tempo ao vivo, o
+  // HTML mudava a cada 250 ms e o WebView recarregava sem parar (vídeo preto, cortina voltando ao meio).
+  const [t0Cmp, setT0Cmp] = useState(0);
+  const setCmp = (x: Cmp | null) => { setT0Cmp(tempoV.t); setCmpBruto(x); };
   const [larguraBarra, setLarguraBarra] = useState(0);
   const web = useRef<WebView>(null);
   const { width: larg, height: alt } = useWindowDimensions();
@@ -890,7 +898,7 @@ function Foco({ fila, i, onI, onFecha, onAcao, onAmpliar, onSemente }: {
   const k = i == null ? 0 : Math.min(i, Math.max(0, fila.length - 1));
   const atualPath = fila[k]?.img.path;
   // trocar de vídeo mantém a comparação, a não ser que o comparado seja o próprio vídeo novo
-  useEffect(() => { if (cmp && cmp.path === atualPath) setCmp(null); }, [atualPath]);
+  useEffect(() => { if (cmp && cmp.path === atualPath) setCmpBruto(null); }, [atualPath]);
   if (i == null || !fila.length) return null;
   const { img, mid, t } = fila[k];
   const o = optsDe(t, img);
@@ -939,7 +947,7 @@ function Foco({ fila, i, onI, onFecha, onAcao, onAmpliar, onSemente }: {
         {/* contido nos dois eixos (object-fit contain no <video>): um 9:16 não empurra o rodapé */}
         <View style={{ flex: 1, minHeight: 0 }}>
           <VideoWeb key={`${img.path}|${cmp?.path ?? ""}|${cmp?.modo ?? ""}`} path={img.path} web={web} onTempo={(tt, d) => setTempoV({ t: tt, d })}
-                    cmp={cmp} fps={o.fps} t0={cmp ? tempoV.t : 0} nomeAtual={metodo.replace(/^ampliado com /, "")} />
+                    cmp={cmp} fps={o.fps} t0={cmp ? t0Cmp : 0} nomeAtual={metodo.replace(/^ampliado com /, "")} />
         </View>
         {cmp && (
           <View style={{ flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 12, paddingTop: 8 }}>
