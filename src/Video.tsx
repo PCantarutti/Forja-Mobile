@@ -7,8 +7,8 @@ import WebView from "react-native-webview";
 import { api, base, enviaArquivo, lerAjustes, type Msg, salvaAjustes, urlImagem } from "./api";
 import type { Conv } from "./Chat";
 import { pergunta } from "./Dialogo";
-import { Check, Clock, Cube, Download, Edit, Expandir, ExternalLink, Folder, Imagem, Play, Plus, Raio, Repetir, Seta, Sliders, Square, Trash,
-         Trocar, Voltar, X } from "./icones";
+import { Check, Clock, Cube, Download, Edit, Expandir, ExternalLink, Film, Folder, Imagem, Play, Plus, Raio, Repetir, Seta, Sliders, Split, Square,
+         Trash, Trocar, Voltar, X } from "./icones";
 import { ArquivosPC, CampoMelhorar, encaixa, Formato, modeloMelhorar, nomeFormato } from "./Formato";
 import { AcaoGrade, AMOSTRADORES, BotaoEnviar, CampoSemente, type Destino, LinhaEstimativa, Miniatura, salva } from "./Imagens";
 import Liquido from "./Liquido";
@@ -29,8 +29,10 @@ type Opts = Record<string, any> & { steps: number; cfg: number; width: number; h
                                     loras?: { path: string; peso: number }[] };
 type LocalVid = { video: Opts; video_models: ModeloVid[]; loras: Lora[]; tempos_video: Tempo[]; image_busy?: boolean; runtimes: any;
                   gpu_video?: { nome?: string; gb?: number }; image?: Record<string, any>; video_dir?: string };
-type Img = { path: string; seed: number; model_name?: string; status: string; progress?: number; preview?: string; com_previa?: boolean;
-             restante?: number; s_passo?: number; error?: string; unidade?: string }; // unidade "quadro": ampliação
+type Img = { path: string; seed: number; model?: string; model_name?: string; status: string; progress?: number; preview?: string; com_previa?: boolean;
+             restante?: number; s_passo?: number; error?: string; unidade?: string; // unidade "quadro": ampliação
+             // acrescentado pelo Reaproveitar (outros ajustes e quadros) ou ampliado por outro método: vale por cima do lote
+             opts?: Record<string, any>; refs?: string[]; ampliacao?: { origem: string; fator: number; modelo: string; suavizar: boolean } };
 type Tomada = { user?: Msg; msg: Msg; imgs: Img[] };
 type Ajustes = { modelo: string; modo: string; count: number; seed: number; seed_mode: string; o: Opts | null };
 
@@ -43,6 +45,12 @@ const MODOS = [
     exemplo: "a smooth continuous transition, the flower slowly blossoms, static camera" },
 ];
 const pronto = (i: Img) => ["pronta", "mantida"].includes(i.status);
+const CURTO: Record<string, string> = { t2v: "texto → vídeo", i2v: "imagem → vídeo", flf2v: "início → fim" };
+const modoDe = (refs: string[]) => ["t2v", "i2v", "flf2v"][Math.min(2, refs.length)];
+const optsDe = (t: Tomada, i?: Img) => ({ ...(t.msg.meta?.opts ?? {}), ...(i?.opts ?? {}) });
+/** O método que fez o vídeo (metodoDo do VideoView): modo e modelo na geração; método e fator na ampliação. */
+const metodoDe = (t: Tomada, i: Img) => (t.msg.meta?.opts?.ampliacao || i.ampliacao ? `ampliado com ${i.model_name ?? "?"}`
+  : `${CURTO[modoDe(i.refs ?? t.user?.meta?.refs ?? [])]} · ${i.model_name ?? ""}`);
 const pilha = { position: "absolute" as const, left: 0, right: 0, top: 0, bottom: 0, borderRadius: 14, borderWidth: 1, borderColor: c.line };
 const SEMENTES = [{ id: "incremental", rotulo: "Incremental" }, { id: "aleatoria", rotulo: "Aleatória" }, { id: "fixa", rotulo: "Fixa" }];
 const REFAZIVEIS = ["interrompida", "pendente", "cancelada", "erro"];
@@ -90,9 +98,53 @@ const htmlVideo = (src: string, quadro: boolean) =>
     `setInterval(function(){window.ReactNativeWebView&&window.ReactNativeWebView.postMessage(JSON.stringify({t:v.currentTime,d:v.duration||0}))},250);</script>`) +
   `</body></html>`;
 
-function VideoWeb({ path, quadro, onTempo, web }: { path: string; quadro?: boolean; onTempo?: (t: number, d: number) => void; web?: React.Ref<WebView> }) {
+/** Comparar (como o player do desktop): o outro vídeo segue este — tocar, pausar, posição e velocidade — e, tocando,
+ *  acerta a velocidade em 3% em vez de saltar (cada salto é um seek que engasga). `deslizar` = cortina com a barra
+ *  arrastável (o outro à esquerda); `lado` = os dois lado a lado (em pé, um sobre o outro). `t0`: de onde começa. */
+type Cmp = { path: string; nome: string; antes?: boolean; modo: "deslizar" | "lado" };
+const esc = (x: string) => x.replace(/[&<>"]/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[ch]!));
+const htmlComparar = (src: string, cmp: Cmp, fps: number, t0: number, nomeAtual: string) => {
+  const lado = cmp.modo === "lado";
+  const rot = "position:absolute;top:10px;z-index:3;background:#000b;color:#fff;font:12px sans-serif;padding:3px 8px;border-radius:6px;max-width:42%;" +
+    "white-space:nowrap;overflow:hidden;text-overflow:ellipsis";
+  return `<html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>html,body{margin:0;background:#000;height:100%;overflow:hidden}` +
+    `#w{position:relative;width:100%;height:100%;${lado ? "display:flex" : ""}}video{object-fit:contain;display:block}` +
+    (lado ? `video{width:50%;height:100%}@media (orientation:portrait){#w{flex-direction:column}video{width:100%;height:50%}}`
+          : `video{position:absolute;inset:0;width:100%;height:100%}#o{clip-path:inset(0 50% 0 0)}` +
+            `#b{position:absolute;top:0;bottom:0;left:50%;width:44px;margin-left:-22px;z-index:2;touch-action:none}` +
+            `#b:before{content:"";position:absolute;left:21px;top:0;bottom:0;width:2px;background:#fff}` +
+            `#b:after{content:"\u2194";position:absolute;left:4px;top:50%;margin-top:-18px;width:36px;height:36px;border-radius:18px;background:#000c;` +
+            `border:1px solid #fff8;color:#fff;font:18px sans-serif;text-align:center;line-height:34px}`) +
+    `</style></head><body><div id="w">` +
+    (lado ? `<video id="o" src="${urlImagem(cmp.path)}" muted playsinline preload="auto" loop></video><video id="v" src="${src}" autoplay loop playsinline muted></video>`
+          : `<video id="v" src="${src}" autoplay loop playsinline muted></video><video id="o" src="${urlImagem(cmp.path)}" muted playsinline preload="auto" loop></video><div id="b"></div>`) +
+    `<span style="${rot};left:10px">${esc(!lado && cmp.antes ? "Antes" : cmp.nome)}</span>` +
+    `<span style="${rot};${lado ? "left:calc(50% + 10px)" : "right:10px"}" class="r">${esc(!lado && cmp.antes ? "Depois" : nomeAtual)}</span>` +
+    (lado ? `<style>@media (orientation:portrait){.r{left:10px!important;top:calc(50% + 10px)!important}}</style>` : "") +
+    `</div><script>var v=document.getElementById("v"),o=document.getElementById("o"),q=1/${fps || 16};` +
+    `v.onclick=o.onclick=function(){v.paused?v.play():v.pause()};` +
+    `v.addEventListener("loadedmetadata",function(){if(${t0}>0)v.currentTime=${t0}});` +
+    `function segue(f){if(!o.duration)return;var a=Math.min(o.duration,v.currentTime),d=o.currentTime-a;` +
+    `if(f||v.paused||Math.abs(d)>4*q){if(Math.abs(d)>1e-3)o.currentTime=a;o.playbackRate=v.playbackRate}` +
+    `else{var r=Math.abs(d)>q/2?v.playbackRate*(d>0?0.97:1.03):v.playbackRate;if(o.playbackRate!==r)o.playbackRate=r}` +
+    `if(v.paused&&!o.paused)o.pause();else if(!v.paused&&o.paused&&a<o.duration)o.play().catch(function(){})}` +
+    `["play","pause","seeked"].forEach(function(e){v.addEventListener(e,function(){segue(true)})});` +
+    `o.addEventListener("loadedmetadata",function(){segue(true)});setInterval(function(){segue(false)},50);` +
+    (lado ? "" : `var b=document.getElementById("b");function poe(x){var c=Math.min(1,Math.max(0,x/innerWidth));` +
+      `o.style.clipPath="inset(0 "+(1-c)*100+"% 0 0)";b.style.left=c*100+"%"}` +
+      `b.addEventListener("touchstart",function(e){e.preventDefault()},{passive:false});` +
+      `b.addEventListener("touchmove",function(e){e.preventDefault();poe(e.touches[0].clientX)},{passive:false});`) +
+    `setInterval(function(){window.ReactNativeWebView&&window.ReactNativeWebView.postMessage(JSON.stringify({t:v.currentTime,d:v.duration||0}))},250);` +
+    `</script></body></html>`;
+};
+
+function VideoWeb({ path, quadro, onTempo, web, cmp, fps, t0, nomeAtual }: {
+  path: string; quadro?: boolean; onTempo?: (t: number, d: number) => void; web?: React.Ref<WebView>;
+  cmp?: Cmp | null; fps?: number; t0?: number; nomeAtual?: string;
+}) {
   return (
-    <WebView ref={web} source={{ html: htmlVideo(urlImagem(path), !!quadro), baseUrl: base() }} originWhitelist={["*"]} style={{ flex: 1, backgroundColor: "#000" }}
+    <WebView ref={web} source={{ html: cmp ? htmlComparar(urlImagem(path), cmp, fps ?? 16, t0 ?? 0, nomeAtual ?? "Este") : htmlVideo(urlImagem(path), !!quadro), baseUrl: base() }}
+             originWhitelist={["*"]} style={{ flex: 1, backgroundColor: "#000" }}
              mediaPlaybackRequiresUserAction={false} allowsInlineMediaPlayback scrollEnabled={false} pointerEvents={quadro ? "none" : "auto"}
              androidLayerType="hardware"
              onMessage={onTempo ? (e) => { try { const m = JSON.parse(e.nativeEvent.data); onTempo(m.t, m.d); } catch {} } : undefined} />
@@ -113,6 +165,11 @@ export default function Video({ conv, onCriada, onTurno, onBaixarModelos }:
   const [melhorando, setMelhorando] = useState(false);
   const [acel, setAcel] = useState<{ arquivos: { gb: number; presente: string }[]; motivo?: string } | null>(null);
   const [foco, setFoco] = useState<number | null>(null);
+  // Reaproveitar (VideoView): o prompt do lote fica no campo como dica e enviar gera mais NELE, com o modo, os
+  // quadros e os ajustes que estiverem na tela. Escrever um prompt novo começa um lote novo.
+  const [reuso, setReuso] = useState<{ lote: number; prompt: string } | null>(null);
+  // Folha de ampliar fora do player: o original de uma ampliação (Reaproveitar) ou um vídeo do celular
+  const [ampAlvo, setAmpAlvo] = useState<AlvoAmpliar | null>(null);
   const antesDoAcel = useRef<Partial<Opts> | null>(null);
   const lista = useRef<FlatList>(null);
   const inset = useSafeAreaInsets();
@@ -238,10 +295,19 @@ export default function Video({ conv, onCriada, onTurno, onBaixarModelos }:
   const precisa = MODOS.find((m) => m.id === aj?.modo)?.refs ?? 0;
   async function gera() {
     const texto = prompt.trim();
-    if (!texto || !aj?.o || !aj.modelo) return;
+    if ((!texto && !reuso) || !aj?.o || !aj.modelo) return;
     if (refs.length < precisa) return setErro(precisa === 1 ? "Escolha a imagem que vai ser animada." : "Escolha o quadro inicial e o final.");
     setErro("");
     const opts = Object.fromEntries(Object.entries(aj.o).filter(([k, v]) => !DO_MODELO.includes(k) && v !== null && v !== ""));
+    if (reuso && !texto) { // mais vídeos no mesmo lote
+      const lote = reuso.lote;
+      return comVram(async (confirm) => {
+        await api.post(`/imagens/${lote}/mais`, { count: aj.count, models: [aj.modelo], opts, seed: aj.seed, seed_mode: aj.seed_mode, confirm,
+                                                  refs: refs.slice(0, precisa) });
+        setReuso(null);
+        carrega();
+      }, "gerar");
+    }
     let id = convId; // antes do comVram: o repetir com confirm não pode abrir outra conversa
     if (id == null) {
       try { const nova = await api.post<Conv>("/conversations", { kind: "video" }); id = nova.id; convRef.current = id; onCriada(nova); setConvId(id); }
@@ -278,13 +344,51 @@ export default function Video({ conv, onCriada, onTurno, onBaixarModelos }:
     } catch (e: any) { setErro(e.message); }
   }
 
-  const reaproveita = (t: Tomada) => {
+  const reaproveita = async (t: Tomada) => {
+    const amp = t.msg.meta?.opts?.ampliacao;
+    if (amp) { // ampliação: o vídeo ORIGINAL de novo, para ampliar por outro método no mesmo lote
+      try {
+        const d = await api.get<{ w: number; h: number; fps: number; quadros: number }>(`/local/video/sondar?path=${encodeURIComponent(amp.origem)}`, 20000);
+        setAmpAlvo({ tipo: "mais", mid: t.msg.id, w: d.w, h: d.h, fps: d.fps, nome: amp.origem.split(/[\\/]/).pop() });
+      } catch (e: any) { setErro(`O original não está mais disponível: ${e.message}`); }
+      return;
+    }
     const m = t.user?.meta ?? {};
-    setPrompt(t.user?.content ?? "");
+    setPrompt("");
+    setReuso({ lote: t.msg.id, prompt: t.user?.content ?? "" });
     setRefs(m.refs ?? []);
     if (aj) muda({ modelo: m.models?.[0] ?? aj.modelo, count: m.count ?? aj.count, seed_mode: m.seed_mode ?? aj.seed_mode, seed: m.seed ?? aj.seed,
-      modo: ["t2v", "i2v", "flf2v"][Math.min(2, (m.refs ?? []).length)], o: { ...(aj.o as Opts), ...(m.opts ?? {}) } });
+      modo: modoDe(m.refs ?? []), o: { ...(aj.o as Opts), ...(t.msg.meta?.opts ?? {}) } });
   };
+
+  /** Vídeo do celular: sobe para o PC (em pedaços) e abre a folha de ampliar. */
+  async function ampliaDoCelular() {
+    const r = await DocumentPicker.getDocumentAsync({ type: "video/*", copyToCacheDirectory: true }).catch(() => null);
+    if (!r || r.canceled) return;
+    const a = r.assets[0];
+    toast("Enviando o vídeo para o PC…");
+    try {
+      const { path } = await enviaArquivo<{ path: string }>("/imagens/video", { uri: a.uri, name: a.name, mimeType: a.mimeType });
+      const d = await api.get<{ w: number; h: number; fps: number; quadros: number }>(`/local/video/sondar?path=${encodeURIComponent(path)}`, 20000);
+      setAmpAlvo({ tipo: "arquivo", path, w: d.w, h: d.h, fps: d.fps, nome: a.name });
+    } catch (e: any) { setErro(e.message); }
+  }
+
+  /** Ampliar (tomada, mais no lote de ampliação ou vídeo do celular), com a pergunta da VRAM (SeedVR2). */
+  async function amplia(alvo: AlvoAmpliar, corpo: CorpoAmpliar) {
+    setAmpAlvo(null);
+    let id = convId;
+    if (alvo.tipo === "arquivo" && id == null) {
+      try { const nova = await api.post<Conv>("/conversations", { kind: "video" }); id = nova.id; convRef.current = id; onCriada(nova); setConvId(id); }
+      catch (e: any) { return setErro(e.message); }
+    }
+    await comVram(async (confirm) => {
+      if (alvo.tipo === "tomada") await api.post(`/imagens/${alvo.mid}/ampliar`, { path: alvo.path, ...corpo, confirm });
+      else if (alvo.tipo === "mais") await api.post(`/imagens/${alvo.mid}/ampliar-mais`, { ...corpo, confirm });
+      else await api.post(`/imagens/${id}/ampliar-arquivo`, { path: alvo.path, ...corpo, confirm });
+      carrega();
+    }, "ampliar");
+  }
 
   const acao = (path: string, body?: unknown) => api.post(path, body).then(carrega).catch((e) => setErro(e.message));
   const o = aj?.o;
@@ -292,7 +396,7 @@ export default function Video({ conv, onCriada, onTurno, onBaixarModelos }:
   const seg = o ? Math.round(((o.frames - 1) / (o.fps || 16)) * 10) / 10 : 0;
   const semRuntime = st && !st.runtimes?.sd?.installed;
   // Com uma geração rodando, a nova entra na fila do PC (um sd-cli por vez, na ordem).
-  const pode = !!prompt.trim() && !!aj?.modelo && !semRuntime && refs.length >= precisa;
+  const pode = (!!prompt.trim() || !!reuso) && !!aj?.modelo && !semRuntime && refs.length >= precisa;
   const nomeModelo = modelo ? (modelo.req?.nome ?? modelo.name) : "Modelo";
   const tamPara = (f: string, q: string) => tamanhoVideo(modelo?.req, f, q);
   const qAtual = o ? Object.keys(QUALIDADES).find((q) => Math.min(...tamPara("16:9", q)) === Math.min(o.width, o.height)) : undefined;
@@ -359,7 +463,8 @@ export default function Video({ conv, onCriada, onTurno, onBaixarModelos }:
           </View>
         }
         renderItem={({ item }) => (
-          <TomadaView t={item} onFoco={(img) => setFoco(Math.max(0, fila.findIndex((f) => f.img.path === img.path)))} onAcao={acao} onReaproveita={() => reaproveita(item)}
+          <TomadaView t={item} reaproveitando={reuso?.lote === item.msg.id}
+                      onFoco={(img) => setFoco(Math.max(0, fila.findIndex((f) => f.img.path === img.path)))} onAcao={acao} onReaproveita={() => reaproveita(item)}
                       onContinua={() => comVram((confirm) => api.post(`/imagens/${item.msg.id}/continuar`, { confirm }).then(carrega), "continuar")} />
         )}
       />
@@ -404,9 +509,17 @@ export default function Video({ conv, onCriada, onTurno, onBaixarModelos }:
               )}
             </View>
           )}
+          {reuso && (
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 8, paddingTop: 4 }}>
+              <Text style={{ color: c.accentText, fontSize: 12.5, flex: 1 }}>
+                Mais vídeos neste lote · modo, quadros e ajustes da tela valem · escrever começa um lote novo
+              </Text>
+              <Pressable hitSlop={8} onPress={() => setReuso(null)}><X size={14} color={c.faint} /></Pressable>
+            </View>
+          )}
           <TextInput style={{ color: c.fg, fontSize: 15, maxHeight: 130, paddingHorizontal: 8, paddingTop: 6 }} value={prompt}
-                     onChangeText={setPrompt} multiline placeholderTextColor={c.faint}
-                     placeholder={precisa ? "O que acontece a partir da imagem" : "Descreva a cena, o movimento e a câmera"} />
+                     onChangeText={(x) => { setPrompt(x); if (x) setReuso(null); }} multiline placeholderTextColor={c.faint}
+                     placeholder={reuso ? reuso.prompt : precisa ? "O que acontece a partir da imagem" : "Descreva a cena, o movimento e a câmera"} />
           {(tempoEst || vram != null) && (
             <LinhaEstimativa onPress={() => setFolha("ajustes")} passa={passa} tempo={tempoEst ?? "sem medição"}
                              vram={vram != null ? `${num(vram, 1)} GB de VRAM` : ""} />
@@ -424,6 +537,7 @@ export default function Video({ conv, onCriada, onTurno, onBaixarModelos }:
                 <Chip rotulo="Acelerar" ativo={acelerando} icone={<Raio size={14} color={acelerando ? c.accentText : c.muted} />} onPress={alternaAcel} />
               )}
               <Chip rotulo={melhorando ? "Melhorando…" : "Melhorar"} icone={<Edit size={14} color={c.muted} />} onPress={melhora} />
+              <Chip rotulo="Ampliar vídeo" icone={<Film size={14} color={c.muted} />} onPress={ampliaDoCelular} />
             </ScrollView>
             <BotaoEnviar pode={pode} onPress={gera} />
           </View>
@@ -552,8 +666,10 @@ export default function Video({ conv, onCriada, onTurno, onBaixarModelos }:
         </Folha>
       )}
 
-      <Foco fila={fila} i={foco} onI={setFoco} onFecha={() => setFoco(null)} onAcao={acao} onFechaEAcao={(path, body) => { setFoco(null); acao(path, body); }}
-            onSemente={(k) => { muda({ seed: k, seed_mode: "fixa", count: 1 }); setFoco(null); }} onErro={setErro} />
+      <Foco fila={fila} i={foco} onI={setFoco} onFecha={() => setFoco(null)} onAcao={acao}
+            onAmpliar={(alvo, corpo) => { setFoco(null); amplia(alvo, corpo); }}
+            onSemente={(k) => { muda({ seed: k, seed_mode: "fixa", count: 1 }); setFoco(null); }} />
+      <FolhaAmpliarVideo alvo={ampAlvo} onFecha={() => setAmpAlvo(null)} onAmpliar={(corpo) => ampAlvo && amplia(ampAlvo, corpo)} onErro={setErro} />
     </View>
   );
 }
@@ -575,8 +691,9 @@ function predefVideo(o: Opts, acelerando: boolean) {
 }
 
 
-function TomadaView({ t, onFoco, onAcao, onReaproveita, onContinua }: {
+function TomadaView({ t, onFoco, onAcao, onReaproveita, onContinua, reaproveitando }: {
   t: Tomada; onFoco: (i: Img) => void; onAcao: (path: string, body?: unknown) => void; onReaproveita: () => void; onContinua: () => void;
+  reaproveitando?: boolean;
 }) {
   const { width } = useWindowDimensions();
   const [idx, setIdx] = useState(0);
@@ -588,6 +705,8 @@ function TomadaView({ t, onFoco, onAcao, onReaproveita, onContinua }: {
   const refazer = t.imgs.filter((i) => REFAZIVEIS.includes(i.status)).length;
   const amp = o.ampliacao;
   const atual = t.imgs[Math.min(idx, t.imgs.length - 1)];
+  const oa = optsDe(t, atual); // os ajustes do vídeo da vez (o acrescentado pelo Reaproveitar tem os dele)
+  const metodos = [...new Set(t.imgs.map((i) => metodoDe(t, i)))];
   return (
     <View style={{ gap: 10 }}>
       {!!t.user?.content && (
@@ -596,9 +715,12 @@ function TomadaView({ t, onFoco, onAcao, onReaproveita, onContinua }: {
           <Text style={s.txt} numberOfLines={aberto ? undefined : 2}>{t.user.content}</Text>
         </Pressable>
       )}
+      <Text style={{ color: c.muted, fontSize: 12, alignSelf: "flex-end", maxWidth: "88%", textAlign: "right" }} numberOfLines={aberto ? undefined : 2}>
+        {metodos.length > 1 ? `${metodos.length} métodos: ` : "Método: "}{metodos.join(" · ")}
+      </Text>
       <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
-        {[o.width && `${o.width}×${o.height}`, o.frames && `${Math.round(((o.frames - 1) / (o.fps || 16)) * 10) / 10} s · ${o.fps} fps`,
-          o.steps && `${o.steps} passos`, amp && `ampliado ${amp.fator}×`, o.loras?.length && `${o.loras.length} LoRA`, atual?.model_name]
+        {[oa.width && `${oa.width}×${oa.height}`, oa.frames && `${Math.round(((oa.frames - 1) / (oa.fps || 16)) * 10) / 10} s · ${oa.fps} fps`,
+          !amp && oa.steps && `${oa.steps} passos`, oa.loras?.length && `${oa.loras.length} LoRA`]
           .filter(Boolean).map((x) => (
             <Text key={String(x)} style={{ color: c.faint, fontFamily: mono, fontSize: 11.5, backgroundColor: c.raised, borderRadius: 5, overflow: "hidden", paddingHorizontal: 7, paddingVertical: 2 }}>{x}</Text>
           ))}
@@ -627,6 +749,11 @@ function TomadaView({ t, onFoco, onAcao, onReaproveita, onContinua }: {
                                          alignItems: "center", justifyContent: "center" }}>
                             <Play size={15} color="#fff" />
                           </View>
+                        )}
+                        {metodos.length > 1 && pronto(img) && ( // lote misto: cada vídeo diz o seu método
+                          <Text style={{ position: "absolute", left: 50, top: 16, right: 10, color: "#fff", fontSize: 11.5 }} numberOfLines={1}>
+                            <Text style={{ backgroundColor: "#000b" }}> {metodoDe(t, img).replace(/^ampliado com /, "")} </Text>
+                          </Text>
                         )}
                         {img.status === "mantida" && (
                           <Text style={{ position: "absolute", right: 10, top: 12, color: c.ok, fontSize: 12, fontWeight: "600",
@@ -665,50 +792,123 @@ function TomadaView({ t, onFoco, onAcao, onReaproveita, onContinua }: {
       <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
         {rodando && <Botao rotulo="Cancelar" icone={<Square size={12} color={c.fg} />} onPress={() => onAcao(`/imagens/${t.msg.id}/cancelar`)} />}
         {!rodando && refazer > 0 && <Botao rotulo={`Gerar as que faltaram (${refazer})`} icone={<Repetir size={14} color={c.fg} />} onPress={onContinua} />}
-        {!rodando && !amp && <Botao rotulo="Reaproveitar" icone={<Repetir size={14} color={c.fg} />} onPress={onReaproveita} />}
+        {!rodando && (
+          <Botao rotulo={amp ? "Ampliar de novo" : "Reaproveitar"} icone={amp ? <Expandir size={14} color={c.fg} /> : <Repetir size={14} color={c.fg} />}
+                 cor={reaproveitando ? c.accentText : undefined} onPress={onReaproveita} />
+        )}
       </View>
     </View>
   );
 }
 
+/** Onde a folha de ampliar manda: um vídeo pronto do lote, o original de um lote de ampliação (mais métodos no
+ *  mesmo lote) ou um vídeo que veio do celular. */
+type AlvoAmpliar = ({ tipo: "tomada"; mid: number; path: string } | { tipo: "mais"; mid: number } | { tipo: "arquivo"; path: string })
+  & { w?: number; h?: number; fps?: number; nome?: string };
+type CorpoAmpliar = { fator: number; modelo: string; modelos: string[]; suavizar: boolean };
+type Metodo = { path: string; name: string; tipo?: "esrgan" | "seedvr2" | "spandrel" | "redesenhar" };
+
+/** A folha de ampliar do desktop (PainelAmpliar com `varios`): marque um ou mais métodos, feitos um depois do
+ *  outro no mesmo lote, na ordem marcada. Tudo o que o PC tem, menos o redesenho (em vídeo cada quadro sairia de
+ *  um jeito). O SeedVR2 e os do ComfyUI dizem quando falta o ComfyUI no PC. */
+function FolhaAmpliarVideo({ alvo, onFecha, onAmpliar, onErro }: {
+  alvo: AlvoAmpliar | null; onFecha: () => void; onAmpliar: (c: CorpoAmpliar) => void; onErro: (e: string) => void;
+}) {
+  const [cat, setCat] = useState<{ no_disco: Metodo[]; ffmpeg: string; comfy?: { instalado?: string } } | null>(null);
+  const [marcados, setMarcados] = useState<string[] | null>(null);
+  const [fator, setFator] = useState(2);
+  const [suavizar, setSuavizar] = useState(false);
+  const aberta = !!alvo;
+  useEffect(() => {
+    if (!aberta) return;
+    setMarcados(null);
+    api.get<NonNullable<typeof cat>>("/local/video/ampliadores", 20000).then(setCat).catch((e) => onErro(e.message));
+  }, [aberta]);
+  const metodos = (cat?.no_disco ?? []).filter((m) => m.tipo !== "redesenhar");
+  const esrgans = metodos.filter((m) => (m.tipo ?? "esrgan") === "esrgan");
+  // sem escolha: o ESRGAN do mesmo fator (o SeedVR2 nunca é o padrão: leva minutos)
+  const escolhidos = marcados ?? [(esrgans.find((m) => new RegExp(`x${fator}(?!\\d)`, "i").test(m.name)) ?? esrgans[0])?.path ?? ""];
+  const tipoDe = (p: string) => metodos.find((m) => m.path === p)?.tipo ?? (p ? "esrgan" : "");
+  const semComfy = !cat?.comfy?.instalado && escolhidos.some((p) => ["seedvr2", "spandrel"].includes(tipoDe(p)));
+  const alterna = (p: string) => setMarcados(escolhidos.includes(p) ? escolhidos.filter((x) => x !== p) : [...escolhidos, p]);
+  const dica = (t?: string) => (t === "seedvr2" ? "IA pesada, ~7 GB de VRAM, minutos" : t === "spandrel" ? "IA, pelo ComfyUI" : "IA, quadro a quadro");
+  return (
+    <Folha aberta={aberta} titulo={alvo?.tipo === "mais" ? "Ampliar de novo o original" : "Ampliar vídeo"} onFecha={onFecha}>
+      {!!alvo?.nome && <Text style={[s.faint, { fontSize: 12.5 }]} numberOfLines={1}>{alvo.nome}{alvo.w ? ` · ${alvo.w}×${alvo.h}` : ""}</Text>}
+      {!cat ? <ActivityIndicator color={c.muted} /> : !cat.ffmpeg ? (
+        <Text style={s.muted}>Falta o ffmpeg no PC: instale em Configurações › Runtime, no desktop.</Text>
+      ) : (
+        <>
+          <Campo rotulo="Métodos" dica="Marque vários para testar em sequência, no mesmo lote.">
+            <View style={{ gap: 12 }}>
+              {[...metodos.map((m) => ({ id: m.path, nome: m.name, tipo: m.tipo as string | undefined })), { id: "", nome: "Lanczos", tipo: undefined }].map((m) => {
+                const ordem = escolhidos.indexOf(m.id);
+                return (
+                  <Opcao key={m.id || "lanczos"} rotulo={m.nome} valor={ordem >= 0} onMuda={() => alterna(m.id)}
+                         sub={`${m.id ? dica(m.tipo) : "rápido, sem IA"}${escolhidos.length > 1 && ordem >= 0 ? ` · ${ordem + 1}º` : ""}`} />
+                );
+              })}
+            </View>
+          </Campo>
+          <Campo rotulo="Fator">
+            <View style={{ flexDirection: "row", gap: 8 }}>
+              {[2, 4].map((f) => (
+                <CartaoOpcao key={f} altura={60} titulo={`${f}×`} on={fator === f} onPress={() => setFator(f)}
+                             sub={alvo?.w ? `${alvo.w * f}×${(alvo.h ?? 0) * f}` : undefined} />
+              ))}
+            </View>
+          </Campo>
+          <Opcao rotulo="Suavizar movimento" dica={`Dobra os fps interpolando quadros${alvo?.fps ? ` (${Math.round(alvo.fps)} → ${Math.round(alvo.fps * 2)})` : ""}.`}
+                 valor={suavizar} onMuda={setSuavizar} />
+          {semComfy && <Text style={{ color: c.warn, fontSize: 12.5 }}>O SeedVR2 e os DAT/HAT rodam no ComfyUI do PC: baixe em IA local › Ampliação, no desktop.</Text>}
+          <Botao primario altura={48} desabilitado={!escolhidos.length || semComfy} icone={<Expandir size={16} color={c.accentFg} />}
+                 rotulo={!escolhidos.length ? "Marque um método" : `Ampliar ${fator}×${escolhidos.length > 1 ? ` · ${escolhidos.length} métodos` : ""}`}
+                 onPress={() => onAmpliar({ fator, modelo: escolhidos[0], modelos: escolhidos, suavizar })} />
+        </>
+      )}
+    </Folha>
+  );
+}
+
 /** Player em tela cheia: anda por todos os vídeos prontos. Manter e Descartar já passam ao próximo (triagem com
- * o polegar, como M/X no desktop); salvar, ampliar e semente ficam na grade de baixo. */
-function Foco({ fila, i, onI, onFecha, onAcao, onFechaEAcao, onSemente, onErro }: {
+ * o polegar, como M/X no desktop); salvar, ampliar, comparar e semente ficam na grade de baixo. */
+function Foco({ fila, i, onI, onFecha, onAcao, onAmpliar, onSemente }: {
   fila: { img: Img; mid: number; t: Tomada }[]; i: number | null; onI: (i: number) => void; onFecha: () => void;
-  onAcao: (path: string, body?: unknown) => Promise<unknown>; onFechaEAcao: (path: string, body?: unknown) => void;
-  onSemente: (n: number) => void; onErro: (e: string) => void;
+  onAcao: (path: string, body?: unknown) => Promise<unknown>; onAmpliar: (alvo: AlvoAmpliar, c: CorpoAmpliar) => void;
+  onSemente: (n: number) => void;
 }) {
   const inset = useSafeAreaInsets();
   const [ampliar, setAmpliar] = useState(false);
   const [salvar, setSalvar] = useState(false);
-  const [amp, setAmp] = useState<{ modelos: { path: string; name: string }[]; ffmpeg: string } | null>(null);
-  const [cfgAmp, setCfgAmp] = useState({ fator: 2, modelo: "", suavizar: false });
+  const [escolheCmp, setEscolheCmp] = useState(false);
+  const [cmp, setCmp] = useState<Cmp | null>(null);
   const [tempoV, setTempoV] = useState({ t: 0, d: 0 });
   const [larguraBarra, setLarguraBarra] = useState(0);
   const web = useRef<WebView>(null);
   const { width: larg, height: alt } = useWindowDimensions();
   const deitado = larg > alt; // celular girado: só o vídeo, a barra de tempo e o X
-  useEffect(() => {
-    if (!ampliar || amp) return;
-    api.get<{ no_disco: { path: string; name: string; tipo?: string }[]; ffmpeg: string }>("/local/video/ampliadores", 20000)
-      .then((r) => {
-        const esrgan = r.no_disco.filter((m) => (m.tipo ?? "esrgan") === "esrgan");
-        setAmp({ modelos: esrgan, ffmpeg: r.ffmpeg });
-        const x2 = esrgan.find((m) => /x2/i.test(m.name)) ?? esrgan[0];
-        setCfgAmp((c0) => ({ ...c0, modelo: x2?.path ?? "" }));
-      }).catch((e) => onErro(e.message));
-  }, [ampliar]);
+  const k = i == null ? 0 : Math.min(i, Math.max(0, fila.length - 1));
+  const atualPath = fila[k]?.img.path;
+  // trocar de vídeo mantém a comparação, a não ser que o comparado seja o próprio vídeo novo
+  useEffect(() => { if (cmp && cmp.path === atualPath) setCmp(null); }, [atualPath]);
   if (i == null || !fila.length) return null;
-  const k = Math.min(i, fila.length - 1);
   const { img, mid, t } = fila[k];
-  const o = t.msg.meta?.opts ?? {};
+  const o = optsDe(t, img);
   const proximo = () => (k + 1 < fila.length ? onI(k + 1) : onFecha());
   async function paraDestino(d: Destino) {
     setSalvar(false);
     try { const aviso = await salva([img.path], d, "video/webm"); if (aviso) toast(aviso); }
-    catch (e: any) { if (!/cancel/i.test(String(e?.message))) onErro(e.message); }
+    catch (e: any) { if (!/cancel/i.test(String(e?.message))) toast(e.message); }
   }
   const mantido = img.status === "mantida";
+  const metodo = metodoDe(t, img);
+  // Comparar com: o original (ampliação) na cortina; outra tomada da conversa, lado a lado
+  const origem = (img.ampliacao ?? t.msg.meta?.opts?.ampliacao)?.origem as string | undefined;
+  const opcoesCmp = [
+    ...(origem ? [{ path: origem, nome: "Original (antes)", antes: true }] : []),
+    ...fila.filter((f) => f.img.path !== img.path && f.img.path !== origem)
+      .map((f) => ({ path: f.img.path, nome: metodoDe(f.t, f.img).replace(/^ampliado com /, ""), antes: false })),
+  ];
   const seta = (dir: -1 | 1) => {
     const ativa = dir < 0 ? k > 0 : k + 1 < fila.length;
     return (
@@ -731,15 +931,27 @@ function Foco({ fila, i, onI, onFecha, onAcao, onFechaEAcao, onSemente, onErro }
           <View style={{ flex: 1 }}>
             <Text style={{ color: c.fg, fontSize: 14 }} numberOfLines={1}>{t.user?.content ?? "Vídeo"}</Text>
             <Text style={{ color: c.faint, fontFamily: mono, fontSize: 11.5 }} numberOfLines={1}>
-              {k + 1} de {fila.length} · {img.model_name} · semente {img.seed}{o.width ? ` · ${o.width}×${o.height}` : ""}
+              {k + 1} de {fila.length} · {metodo}{o.width ? ` · ${o.width}×${o.height}` : ""}
             </Text>
           </View>
           {mantido && <Text style={{ color: c.ok, fontSize: 12, fontWeight: "600", marginRight: 8 }}>mantido</Text>}
         </View>}
         {/* contido nos dois eixos (object-fit contain no <video>): um 9:16 não empurra o rodapé */}
         <View style={{ flex: 1, minHeight: 0 }}>
-          <VideoWeb key={img.path} path={img.path} web={web} onTempo={(tt, d) => setTempoV({ t: tt, d })} />
+          <VideoWeb key={`${img.path}|${cmp?.path ?? ""}|${cmp?.modo ?? ""}`} path={img.path} web={web} onTempo={(tt, d) => setTempoV({ t: tt, d })}
+                    cmp={cmp} fps={o.fps} t0={cmp ? tempoV.t : 0} nomeAtual={metodo.replace(/^ampliado com /, "")} />
         </View>
+        {cmp && (
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 12, paddingTop: 8 }}>
+            <View style={{ flex: 1 }}>
+              <Seletor cheio altura={34} opcoes={[{ id: "deslizar", rotulo: "Cortina" }, { id: "lado", rotulo: "Lado a lado" }]} valor={cmp.modo}
+                       onMuda={(m) => setCmp({ ...cmp, modo: m as Cmp["modo"] })} />
+            </View>
+            <Pressable hitSlop={8} onPress={() => setCmp(null)} style={{ padding: 6 }} accessibilityLabel="Parar de comparar">
+              <X size={18} color={c.muted} />
+            </Pressable>
+          </View>
+        )}
         <View style={{ paddingHorizontal: 14 + (deitado ? inset.left : 0), paddingTop: 10, paddingBottom: deitado ? 10 : 0, gap: 6 }}>
           <Pressable onLayout={(e) => setLarguraBarra(e.nativeEvent.layout.width)} hitSlop={10}
                      onPress={(e) => { if (tempoV.d && larguraBarra) web.current?.injectJavaScript(`v.currentTime=${(e.nativeEvent.locationX / larguraBarra) * tempoV.d};true;`); }}
@@ -771,8 +983,11 @@ function Foco({ fila, i, onI, onFecha, onAcao, onFechaEAcao, onSemente, onErro }
           </View>
           <View style={{ flexDirection: "row", gap: 6 }}>
             <AcaoGrade altura={60} rotulo="Salvar" icone={<Download size={18} color={c.fg} />} onPress={() => setSalvar(true)} />
-            {!o.ampliacao && <AcaoGrade altura={60} rotulo="Ampliar" icone={<Expandir size={18} color={c.fg} />} onPress={() => setAmpliar(true)} />}
-            <AcaoGrade altura={60} rotulo="Refazer semente" icone={<Repetir size={18} color={c.fg} />} onPress={() => onSemente(img.seed)} />
+            <AcaoGrade altura={60} rotulo="Ampliar" icone={<Expandir size={18} color={c.fg} />} onPress={() => setAmpliar(true)} />
+            {opcoesCmp.length > 0 && (
+              <AcaoGrade altura={60} rotulo="Comparar" icone={<Split size={18} color={cmp ? c.accentText : c.fg} />} onPress={() => setEscolheCmp(true)} />
+            )}
+            <AcaoGrade altura={60} rotulo="Semente" icone={<Repetir size={18} color={c.fg} />} onPress={() => onSemente(img.seed)} />
           </View>
         </View>}
         <Folha aberta={salvar} titulo="Salvar vídeo" onFecha={() => setSalvar(false)}>
@@ -782,38 +997,18 @@ function Foco({ fila, i, onI, onFecha, onAcao, onFechaEAcao, onSemente, onErro }
             { id: "compartilhar", rotulo: "Compartilhar…", dica: "WhatsApp, Drive, e-mail ou outro app", icone: <ExternalLink size={17} color={c.muted} /> },
           ]} />
         </Folha>
-        <Folha aberta={ampliar} titulo="Ampliar vídeo" onFecha={() => setAmpliar(false)}>
-          {!amp ? <ActivityIndicator color={c.muted} /> : !amp.ffmpeg ? (
-            <Text style={s.muted}>Falta o ffmpeg no PC: instale em Configurações › Runtime, no desktop.</Text>
-          ) : (
-            <>
-              <Campo rotulo="Método" dica="IA roda na GPU do PC; Lanczos é instantâneo, sem inventar detalhe.">
-                <View style={{ gap: 8 }}>
-                  {[...amp.modelos.map((m) => ({ id: m.path, nome: m.name, dica: "IA (ESRGAN)", selo: "segundos" })),
-                    { id: "", nome: "Lanczos", dica: "Rápido, sem IA", selo: "instantâneo" }].map((m) => (
-                    <Radio key={m.id} on={cfgAmp.modelo === m.id} onPress={() => setCfgAmp({ ...cfgAmp, modelo: m.id })}
-                           direita={<Selo t={m.selo} emMono borda />}>
-                      <Text style={{ color: c.fg, fontSize: 14.5 }} numberOfLines={1}>{m.nome}</Text>
-                      <Text style={{ color: c.muted, fontSize: 12.5 }}>{m.dica}</Text>
-                    </Radio>
-                  ))}
-                </View>
-              </Campo>
-              <Campo rotulo="Fator">
-                <View style={{ flexDirection: "row", gap: 8 }}>
-                  {[2, 4].map((f) => (
-                    <CartaoOpcao key={f} altura={60} titulo={`${f}×`} on={cfgAmp.fator === f} onPress={() => setCfgAmp({ ...cfgAmp, fator: f })}
-                                 sub={o.width ? `${o.width * f}×${o.height * f}` : undefined} />
-                  ))}
-                </View>
-              </Campo>
-              <Opcao rotulo="Suavizar movimento" dica="Dobra os fps interpolando quadros." valor={cfgAmp.suavizar}
-                     onMuda={(v) => setCfgAmp({ ...cfgAmp, suavizar: v })} />
-              <Botao primario altura={48} rotulo={`Ampliar ${cfgAmp.fator}×`} icone={<Expandir size={16} color={c.accentFg} />}
-                     onPress={() => { setAmpliar(false); onFechaEAcao(`/imagens/${mid}/ampliar`, { path: img.path, ...cfgAmp }); }} />
-            </>
-          )}
+        <Folha aberta={escolheCmp} titulo="Comparar com" onFecha={() => setEscolheCmp(false)}>
+          <Text style={[s.faint, { fontSize: 12.5 }]}>Os dois tocam juntos. O original abre na cortina (arraste a barra); outra tomada, lado a lado.</Text>
+          <Lista<string> valor={cmp?.path ?? ""} onEscolhe={(p) => {
+            const x = opcoesCmp.find((y) => y.path === p);
+            if (x) setCmp({ path: x.path, nome: x.nome, antes: x.antes, modo: x.antes ? "deslizar" : "lado" });
+            setEscolheCmp(false);
+          }} opcoes={opcoesCmp.map((x) => ({ id: x.path, rotulo: x.nome, dica: x.antes ? "o vídeo antes de ampliar" : x.path.split(/[\\/]/).pop(),
+                                               icone: <Film size={17} color={c.muted} /> }))} />
         </Folha>
+        <FolhaAmpliarVideo alvo={ampliar ? { tipo: "tomada", mid, path: img.path, w: o.width, h: o.height, fps: o.fps } : null}
+                           onFecha={() => setAmpliar(false)} onErro={(e) => toast(e)}
+                           onAmpliar={(corpo) => { setAmpliar(false); onAmpliar({ tipo: "tomada", mid, path: img.path }, corpo); }} />
       </View>
     </Modal>
   );
