@@ -660,6 +660,11 @@ export default function Video({ conv, onCriada, onTurno, onBaixarModelos }:
               </Pressable>
             )}
           </Recolhivel>
+          <Campo rotulo="Formato do arquivo" dica="Vale para os vídeos gerados e os ampliados. AV1: arquivo pequeno (Quick Sync da GPU). H.264: toca em qualquer lugar.">
+            <Seletor cheio opcoes={[{ id: "mp4-av1", rotulo: "MP4 AV1" }, { id: "mp4-h264", rotulo: "MP4 H.264" }, { id: "webm-vp9", rotulo: "WebM" }]}
+                     valor={o.formato ?? "mp4-av1"}
+                     onMuda={(f) => { mudaO({ formato: f }); api.put("/local/video/defaults", { formato: f }).catch((e) => toast(e.message)); }} />
+          </Campo>
           <CampoMelhorar aba="video" />
           <ArquivosPC pasta={st?.video_dir ?? ""} onPasta={(p) => api.put("/local/paths", { video_dir: p }).then(() => { setSt((x) => x && { ...x, video_dir: p }); toast("Pasta salva no PC."); })
                                                                .catch((e) => toast(e.message))}
@@ -809,7 +814,7 @@ function TomadaView({ t, onFoco, onAcao, onReaproveita, onContinua, reaproveitan
  *  mesmo lote) ou um vídeo que veio do celular. */
 type AlvoAmpliar = ({ tipo: "tomada"; mid: number; path: string } | { tipo: "mais"; mid: number } | { tipo: "arquivo"; path: string })
   & { w?: number; h?: number; fps?: number; nome?: string };
-type CorpoAmpliar = { fator: number; modelo: string; modelos: string[]; suavizar: boolean; limpeza?: string };
+type CorpoAmpliar = { fator: number; modelo: string; modelos: string[]; suavizar: boolean; limpeza?: string; limpar_original?: boolean };
 type Metodo = { path: string; name: string; tipo?: "esrgan" | "seedvr2" | "spandrel" | "redesenhar" };
 
 /** A folha de ampliar do desktop (PainelAmpliar com `varios`): marque um ou mais métodos, feitos um depois do
@@ -823,6 +828,7 @@ function FolhaAmpliarVideo({ alvo, onFecha, onAmpliar, onErro }: {
   const [fator, setFator] = useState(2);
   const [suavizar, setSuavizar] = useState(false);
   const [limpeza, setLimpeza] = useState("");
+  const [limparOriginal, setLimparOriginal] = useState(false);
   const aberta = !!alvo;
   useEffect(() => {
     if (!aberta) return;
@@ -865,14 +871,17 @@ function FolhaAmpliarVideo({ alvo, onFecha, onAmpliar, onErro }: {
           </Campo>
           <Opcao rotulo="Suavizar movimento" dica={`Dobra os fps interpolando quadros${alvo?.fps ? ` (${Math.round(alvo.fps)} → ${Math.round(alvo.fps * 2)})` : ""}.`}
                  valor={suavizar} onMuda={setSuavizar} />
-          <Campo rotulo="Limpar ruído" dica="Antes da IA tira o ruído de compressão do original; depois, o tremor de textura entre quadros.">
+          <Campo rotulo="Limpar ruído" dica="Depois da IA: apaga o tremor de textura entre quadros, sem tirar nitidez.">
             <Seletor cheio opcoes={[{ id: "", rotulo: "Não" }, { id: "leve", rotulo: "Leve" }, { id: "forte", rotulo: "Forte" }]}
                      valor={limpeza} onMuda={setLimpeza} />
           </Campo>
+          <Opcao rotulo="Limpar o original" dica="Ruído de compressão ou vídeo escuro. Tira um pouco de nitidez: a IA amplia o detalhe que ele apaga."
+                 valor={limparOriginal} onMuda={setLimparOriginal} />
           {semComfy && <Text style={{ color: c.warn, fontSize: 12.5 }}>O SeedVR2 e os DAT/HAT rodam no ComfyUI do PC: baixe em IA local › Ampliação, no desktop.</Text>}
           <Botao primario altura={48} desabilitado={!escolhidos.length || semComfy} icone={<Expandir size={16} color={c.accentFg} />}
                  rotulo={!escolhidos.length ? "Marque um método" : `Ampliar ${fator}×${escolhidos.length > 1 ? ` · ${escolhidos.length} métodos` : ""}`}
-                 onPress={() => onAmpliar({ fator, modelo: escolhidos[0], modelos: escolhidos, suavizar, ...(limpeza ? { limpeza } : {}) })} />
+                 onPress={() => onAmpliar({ fator, modelo: escolhidos[0], modelos: escolhidos, suavizar, ...(limpeza ? { limpeza } : {}),
+                                            ...(limparOriginal ? { limpar_original: true } : {}) })} />
         </>
       )}
     </Folha>
@@ -910,7 +919,7 @@ function Foco({ fila, i, onI, onFecha, onAcao, onAmpliar, onSemente }: {
   const proximo = () => (k + 1 < fila.length ? onI(k + 1) : onFecha());
   async function paraDestino(d: Destino) {
     setSalvar(false);
-    try { const aviso = await salva([img.path], d, "video/webm"); if (aviso) toast(aviso); }
+    try { const aviso = await salva([img.path], d, /\.mp4$/i.test(img.path) ? "video/mp4" : "video/webm"); if (aviso) toast(aviso); }
     catch (e: any) { if (!/cancel/i.test(String(e?.message))) toast(e.message); }
   }
   const mantido = img.status === "mantida";
