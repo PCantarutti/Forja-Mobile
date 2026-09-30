@@ -809,7 +809,7 @@ function TomadaView({ t, onFoco, onAcao, onReaproveita, onContinua, reaproveitan
  *  mesmo lote) ou um vídeo que veio do celular. */
 type AlvoAmpliar = ({ tipo: "tomada"; mid: number; path: string } | { tipo: "mais"; mid: number } | { tipo: "arquivo"; path: string })
   & { w?: number; h?: number; fps?: number; nome?: string };
-type CorpoAmpliar = { fator: number; modelo: string; modelos: string[]; suavizar: boolean };
+type CorpoAmpliar = { fator: number; modelo: string; modelos: string[]; suavizar: boolean; limpeza?: string };
 type Metodo = { path: string; name: string; tipo?: "esrgan" | "seedvr2" | "spandrel" | "redesenhar" };
 
 /** A folha de ampliar do desktop (PainelAmpliar com `varios`): marque um ou mais métodos, feitos um depois do
@@ -822,6 +822,7 @@ function FolhaAmpliarVideo({ alvo, onFecha, onAmpliar, onErro }: {
   const [marcados, setMarcados] = useState<string[] | null>(null);
   const [fator, setFator] = useState(2);
   const [suavizar, setSuavizar] = useState(false);
+  const [limpeza, setLimpeza] = useState("");
   const aberta = !!alvo;
   useEffect(() => {
     if (!aberta) return;
@@ -864,10 +865,14 @@ function FolhaAmpliarVideo({ alvo, onFecha, onAmpliar, onErro }: {
           </Campo>
           <Opcao rotulo="Suavizar movimento" dica={`Dobra os fps interpolando quadros${alvo?.fps ? ` (${Math.round(alvo.fps)} → ${Math.round(alvo.fps * 2)})` : ""}.`}
                  valor={suavizar} onMuda={setSuavizar} />
+          <Campo rotulo="Limpar ruído" dica="Antes da IA tira o ruído de compressão do original; depois, o tremor de textura entre quadros.">
+            <Seletor cheio opcoes={[{ id: "", rotulo: "Não" }, { id: "leve", rotulo: "Leve" }, { id: "forte", rotulo: "Forte" }]}
+                     valor={limpeza} onMuda={setLimpeza} />
+          </Campo>
           {semComfy && <Text style={{ color: c.warn, fontSize: 12.5 }}>O SeedVR2 e os DAT/HAT rodam no ComfyUI do PC: baixe em IA local › Ampliação, no desktop.</Text>}
           <Botao primario altura={48} desabilitado={!escolhidos.length || semComfy} icone={<Expandir size={16} color={c.accentFg} />}
                  rotulo={!escolhidos.length ? "Marque um método" : `Ampliar ${fator}×${escolhidos.length > 1 ? ` · ${escolhidos.length} métodos` : ""}`}
-                 onPress={() => onAmpliar({ fator, modelo: escolhidos[0], modelos: escolhidos, suavizar })} />
+                 onPress={() => onAmpliar({ fator, modelo: escolhidos[0], modelos: escolhidos, suavizar, ...(limpeza ? { limpeza } : {}) })} />
         </>
       )}
     </Folha>
