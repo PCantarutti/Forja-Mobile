@@ -138,11 +138,12 @@ export function LerEdital({ casca, onFeito }: { casca: Casca; onFeito: (comPlano
 
   async function arquivo() {
     const r = await DocumentPicker.getDocumentAsync({ copyToCacheDirectory: true }).catch(() => null);
-    if (!r || r.canceled || casca.conv == null) return;
+    if (!r || r.canceled) return;
     setEnviando(true);
     try {
       const a = r.assets[0];
-      setTexto((await enviaArquivo<{ texto: string }>(`/estudos/${casca.conv}/edital/arquivo`, { uri: a.uri, name: a.name, mimeType: a.mimeType })).texto);
+      const id = casca.conv ?? await casca.garante();
+      setTexto((await enviaArquivo<{ texto: string }>(`/estudos/${id}/edital/arquivo`, { uri: a.uri, name: a.name, mimeType: a.mimeType })).texto);
     } catch (e: any) { casca.erro(e.message); } finally { setEnviando(false); }
   }
 
@@ -152,7 +153,8 @@ export function LerEdital({ casca, onFeito }: { casca: Casca; onFeito: (comPlano
     corte.current?.abort();
     const ac = (corte.current = new AbortController());
     try {
-      await streamSSE(`/estudos/${casca.conv}/edital`, (ev) => { if (ev.erro) casca.erro(ev.erro); else setEx(ev); }, ac.signal,
+      const id = casca.conv ?? await casca.garante();   // começar pelo edital: o objetivo nasce aqui
+      await streamSSE(`/estudos/${id}/edital`, (ev) => { if (ev.erro) casca.erro(ev.erro); else setEx(ev); }, ac.signal,
                       { texto: porLink ? "" : texto, link: porLink ? link.trim() : "", cargo, ...casca.modelo });
     } catch (e: any) { if (!ac.signal.aborted && !cancelado(e)) casca.erro(e.message); }
   }
@@ -253,7 +255,7 @@ export function TrazerEstudo({ casca, onFeito }: { casca: Casca; onFeito: () => 
       { texto: "Cancelar", estilo: "cancelar" },
       { texto: "Trazer", acao: async () => {
         setIndo(x.id);
-        try { await api.post(`/estudos/${casca.conv}/juntar`, { de: x.id }); toast("Estudo trazido."); onFeito(); }
+        try { await api.post(`/estudos/${casca.conv ?? await casca.garante()}/juntar`, { de: x.id }); toast("Estudo trazido."); onFeito(); }
         catch (e: any) { casca.erro(e.message); } finally { setIndo(null); }
       } },
     ]);

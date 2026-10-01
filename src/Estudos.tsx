@@ -121,9 +121,13 @@ export default function Estudos({ conv, onCriada, onTurno }: { conv: Conv | null
   async function criaMateria() {
     const nome = (novaMateria ?? "").trim();
     setNovaMateria(null);
-    if (!nome || convId == null) return;
-    try { const m = await api.post<{ id: string }>(`/estudos/${convId}/materias`, { nome }); await escolheMateria(m.id); }
-    catch (e: any) { setErro(e.message); }
+    if (!nome) return;
+    try {
+      const nova = convId == null;   // objetivo novo: a conversa nasce com a primeira matéria
+      const id = convId ?? await garante();
+      const m = await api.post<{ id: string }>(`/estudos/${id}/materias`, { nome });
+      if (nova) { salvaAjustes(`estudos.materia.${id}`, { v: m.id }); usaMateria(m.id); } else await escolheMateria(m.id);
+    } catch (e: any) { setErro(e.message); }
   }
   useEffect(() => () => setMateriaEstudos(null), []);
   // Matéria que sumiu volta para o Tudo; objetivo com uma matéria só (o estudo de antes) abre nela.
@@ -280,11 +284,11 @@ export default function Estudos({ conv, onCriada, onTurno }: { conv: Conv | null
   }, [tudo]);   // eslint-disable-line react-hooks/exhaustive-deps
   return (
     <View style={{ flex: 1, paddingBottom: teclado }}>
-      {!imersao && !!p && convId != null && (
+      {!imersao && (!!p || convId == null) && (
         <ScrollView horizontal showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="handled" style={{ flexGrow: 0 }}
                     contentContainerStyle={{ flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 10, paddingTop: 8 }}>
-          <Chip rotulo="Tudo" ativo={materia === null} onPress={() => escolheMateria(null)} />
-          {(p.materias ?? []).map((x) => (
+          {!!p && <Chip rotulo="Tudo" ativo={materia === null} onPress={() => escolheMateria(null)} />}
+          {(p?.materias ?? []).map((x) => (
             <Chip key={x.id} ativo={materia === x.id} max={180} onPress={() => escolheMateria(x.id)} onLongPress={() => setDaMateria(x.id)}
                   icone={<View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: corAcerto(x.acerto) }} />}
                   rotulo={x.acerto == null ? x.nome : `${x.nome} ${x.acerto}%`} />
@@ -408,6 +412,9 @@ export default function Estudos({ conv, onCriada, onTurno }: { conv: Conv | null
                       Diga o tema e anexe apostilas, slides ou provas antigas. A IA lê tudo, completa com a web se você quiser e
                       escreve um resumo didático; depois vêm as provas, as dúvidas e a revisão.
                     </Text>
+                    {!p?.materias?.length && (
+                      <Botao rotulo="Começar pelo edital do concurso" icone={<Prancheta size={14} color={c.fg} />} onPress={() => setDoObjetivo("edital")} />
+                    )}
                     {!!doEdital.length && (
                       <View style={{ gap: 6, alignSelf: "stretch", marginTop: 6 }}>
                         <Text style={[s.faint, { fontSize: 12, textAlign: "center" }]}>Do edital · toque num tópico para pedir o resumo dele</Text>
