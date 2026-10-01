@@ -35,7 +35,54 @@ function Numero({ rotulo, valor }: { rotulo: string; valor: string }) {
   );
 }
 
-export function VisaoGeral({ casca, onAbrir, onSimuladoFracos }: { casca: Casca; onAbrir: (m: string) => void; onSimuladoFracos: () => void }) {
+/** O piloto automático (o mesmo do PC): resumo e prova de cada tópico do cronograma, sozinho, até a data. Daqui dá
+ *  para pausar e continuar; a data e o modelo se escolhem no PC (começar daqui vai até a prova, com o modelo daqui). */
+function Piloto({ casca, prefs }: { casca: Casca; prefs: Record<string, unknown> }) {
+  const p = casca.p?.piloto;
+  const plano = casca.p?.revisao?.plano;
+  const [enviando, setEnviando] = useState(false);
+  if (!plano) return null;
+  async function chamar(caminho: string, corpo: object) {
+    setEnviando(true);
+    try { await api.post(`/estudos/${casca.conv}/${caminho}`, corpo); await casca.recarrega(); }
+    catch (e: any) { casca.erro(e.message); }
+    finally { setEnviando(false); }
+  }
+  const comecar = () => {
+    if (p?.ate) return chamar("piloto", {});   // continua com o que foi escolhido (no PC ou daqui)
+    if (!casca.modelo) return toast("Escolha um modelo em Modelos antes.");
+    chamar("piloto", { ...casca.modelo, ...prefs, ate: plano.data });
+  };
+  const pctFeito = p?.total ? Math.round((100 * p.prontos) / p.total) : 0;
+  return (
+    <View style={cartao()}>
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+        <Text style={[s.secao2, { flex: 1 }]}>PILOTO AUTOMÁTICO</Text>
+        {!!p?.total && <Text style={{ color: c.faint, fontFamily: mono, fontSize: 11.5 }}>{p.prontos} de {p.total}</Text>}
+      </View>
+      {p?.ativo ? (
+        <>
+          <Text style={{ color: c.fg, fontSize: 14 }}>{p.fase ? p.fase[0].toUpperCase() + p.fase.slice(1) : "Trabalhando"}…</Text>
+          <View style={{ height: 5, borderRadius: 3, backgroundColor: c.raised, overflow: "hidden" }}>
+            <View style={{ height: 5, borderRadius: 3, width: `${pctFeito}%`, backgroundColor: c.accent }} />
+          </View>
+          <Botao rotulo={enviando ? "Pausando…" : "Pausar"} onPress={() => chamar("piloto/pausar", {})} />
+        </>
+      ) : (
+        <>
+          <Text style={[s.muted, { lineHeight: 19 }]}>
+            Gera sozinho o resumo e uma prova de cada tópico do cronograma, um depois do outro{p?.ate ? ` até ${p.ate.split("-").reverse().join("/")}` : " até a prova"}. Dá para deixar rodando à noite.
+          </Text>
+          <Botao primario rotulo={enviando ? "Enviando…" : p?.prontos && p.prontos < p.total ? "Continuar" : "Começar"} onPress={comecar} />
+        </>
+      )}
+      {!!p?.aviso && <Text style={{ color: c.warn, fontSize: 12.5 }}>{p.aviso}</Text>}
+    </View>
+  );
+}
+
+export function VisaoGeral({ casca, onAbrir, onSimuladoFracos, prefs }: { casca: Casca; onAbrir: (m: string) => void; onSimuladoFracos: () => void;
+                                                                         prefs: Record<string, unknown> }) {
   const v = useVisao(casca);
   if (!v) return <ActivityIndicator style={{ marginTop: 40 }} color={c.muted} />;
   const fraca = v.materias.find((m) => m.id === v.fraca);
@@ -49,6 +96,7 @@ export function VisaoGeral({ casca, onAbrir, onSimuladoFracos }: { casca: Casca;
         <Numero rotulo="Revisar hoje" valor={String(v.vencem)} />
         <Numero rotulo="Faltam" valor={dias != null && dias > 0 ? `${dias} dias` : "—"} />
       </View>
+      <Piloto casca={casca} prefs={prefs} />
       <View style={cartao()}>
         <Text style={s.secao2}>POR MATÉRIA</Text>
         {v.materias.map((m) => (

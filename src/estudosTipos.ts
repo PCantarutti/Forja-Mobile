@@ -121,15 +121,23 @@ export type EstudosDuvidaMsg = {
   id: number; role: "user" | "assistant"; texto: string; status: Status; trecho: string; motor: string; aviso: string; modelo: string; criado: string;
 };
 
+/** O piloto automático do objetivo (o mesmo do PC): resumo e prova de cada tópico do cronograma, sozinho. */
+export type EstudosPiloto = {
+  ativo: boolean; ate: string; fase: string; aviso: string; questoes: number; total: number; prontos: number;
+  atual: { etapa: string; tarefa?: string; topico?: string; mid?: number } | null;
+  feitos: Record<string, { resumo?: number; prova?: number; erro?: string }>;
+};
+
 export type EstudosProjeto = {
   id: number; titulo: string; materiais: EstudosMaterial[];
   materias: EstudosMateria[]; materia: string | null;   // a matéria desta leitura (null = "Tudo")
   edital?: EstudosEdital | null;                          // a última leitura de edital do objetivo
-  resumos: { message_id: number; titulo: string; status: string; criado: string }[];
+  resumos: { message_id: number; titulo: string; tema: string; status: string; criado: string }[];
   resumo: EstudosEstado | null; rodando: number | null; provas: EstudosProvaResumo[]; topicos: string[];
   duvidas: Record<string, number>; revisao: EstudosPainel;
   figuras?: { detectadas: number; uteis: number; olhadas: number };
   simulados?: EstudosSimuladoResumo[]; ranking?: EstudosRanking | null; busca?: EstudosBusca | null;
+  piloto?: EstudosPiloto;
 };
 
 /** Simulados reais (o mesmo do PC, types.ts): a IA conferida com o gabarito oficial, o ranking e a busca na web. */

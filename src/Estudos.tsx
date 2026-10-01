@@ -48,6 +48,9 @@ export default function Estudos({ conv, onCriada, onTurno }: { conv: Conv | null
   const [aba, setAba] = useState<Aba>("resumo");
   const [imersao, setImersao] = useState(false);
   const [tema, setTema] = useState("");
+  const [marcados, setMarcados] = useState<string[]>([]);              // tópicos marcados para o próximo resumo
+  const [aberto, setAberto] = useState<EstudosEstado | null>(null);             // versão de outro tópico aberta na aba dele
+  const [novo, setNovo] = useState(false);                             // "+ Novo tópico": a tela vazia com os tópicos
   const [aj, setAj] = useState<Ajustes>({ escritor: null, extrator: null, prefs: PREFS, web: true, prof: "rapida" });
   const [folha, setFolha] = useState<null | "prefs" | "prof" | "modelos" | "escritor" | "extrator" | "material" | "colar" | "sumario">(null);
   const [colado, setColado] = useState("");
@@ -114,7 +117,7 @@ export default function Estudos({ conv, onCriada, onTurno }: { conv: Conv | null
   async function escolheMateria(m: string | null) {
     if (m === materiaAtual.current || convId == null) return;
     salvaAjustes(`estudos.materia.${convId}`, { v: m });
-    abort.current?.abort(); setExec(null); setTema("");
+    abort.current?.abort(); setExec(null); setTema(""); setMarcados([]); setAberto(null); setNovo(false);
     usaMateria(m);
     await carrega();
   }
@@ -202,11 +205,12 @@ export default function Estudos({ conv, onCriada, onTurno }: { conv: Conv | null
 
   const casca: Casca = { conv: convId, garante, p, exec, segue, recarrega: async () => { await carrega(); }, modelo, carimbo: carimboVisto, erro: setErro, setAba, setImersao };
 
-  async function estudar() {
-    const t = tema.trim();
+  async function estudar(texto?: string) {
+    const t = (texto ?? tema).trim();
     if (!t || exec) return;
     if (!modelo) return toast("Escolha um modelo em Modelos (ou no chat) antes.");
-    setErro("");
+    if (p?.piloto?.ativo) return toast("O piloto automático está usando o modelo: pause ele na Visão geral para pedir outro resumo.");
+    setErro(""); setMarcados([]); setAberto(null); setNovo(false);
     try {
       const id = await garante();
       setFimVisto(null);
@@ -247,7 +251,7 @@ export default function Estudos({ conv, onCriada, onTurno }: { conv: Conv | null
     try { await api.del(`/estudos/material/${id}`); await carrega(); } catch (e: any) { setErro(e.message); }
   }
 
-  const resumo = exec?.tipo === "resumo" ? exec : p?.resumo ?? null;
+  const resumo = exec?.tipo === "resumo" ? exec : novo ? null : aberto ?? p?.resumo ?? null;
   const rodandoResumo = exec?.tipo === "resumo";
   const aguardando = resumo?.status === "aguardando";
   const texto = resumo?.texto ?? "";
@@ -268,6 +272,43 @@ export default function Estudos({ conv, onCriada, onTurno }: { conv: Conv | null
   // No "Tudo" de um objetivo com matérias: Visão geral, Simulado geral, Resumo geral, Revisão e Desempenho (de tudo).
   const tudo = materia === null && !!p?.materias?.length;
   const doEdital = p?.materias?.find((x) => x.id === materia)?.topicos ?? [];
+  // Um resumo por tópico (o mesmo agrupamento do PC): uma aba por tema, a versão mais nova de cada abre
+  const chave = (x: string) => x.trim().toLowerCase();
+  const grupos: { tema: string; mids: number[] }[] = [];
+  for (const r of p?.resumos ?? []) {
+    const tx = r.tema || r.titulo || "Resumo";
+    const g = grupos.find((x) => chave(x.tema) === chave(tx));
+    if (g) g.mids.push(r.message_id); else grupos.push({ tema: tx, mids: [r.message_id] });
+  }
+  const grupoAberto = grupos.find((g) => resumo && g.mids.includes(resumo.message_id));
+  const resumidos = new Set(grupos.flatMap((g) => g.tema.split(";").map(chave)));
+  const todosTopicos = [...doEdital, ...grupos.flatMap((g) => g.tema.split(";").map((x) => x.trim()))
+    .filter((x) => x && !doEdital.some((d) => chave(d) === chave(x)))]
+    .filter((x, i, a) => a.findIndex((y) => chave(y) === chave(x)) === i);
+  async function abrirGrupo(g: { mids: number[] }) {
+    const mid = g.mids.at(-1)!;
+    setNovo(false);
+    if (mid === p?.resumos.at(-1)?.message_id) return setAberto(null);
+    try { setAberto(await api.get<EstudosEstado>(`/estudos/execucao/${mid}`)); } catch (x: any) { setErro(x.message); }
+  }
+  function marcarTopico(x: string) {
+    const n = marcados.includes(x) ? marcados.filter((y) => y !== x) : [...marcados, x];
+    setMarcados(n); setTema(n.join("; "));
+  }
+  /** Os tópicos de agora pelo plano: os pendentes do cronograma desta matéria (fracos na frente), sem resumo ainda. */
+  async function sugerir() {
+    const nome = p?.materias?.find((x) => x.id === materia)?.nome;
+    const hoje = new Date().toLocaleDateString("sv-SE");
+    const doPlano = (p?.revisao?.plano?.dias ?? []).filter((d) => d.dia >= hoje).flatMap((d) => d.tarefas)
+      .filter((x) => x.tipo === "estudar" && !x.feito && x.topico)
+      .map((x) => { const [m, ...r] = x.topico.split(" · "); return r.length ? (m === nome ? r.join(" · ") : "") : x.topico; }).filter(Boolean);
+    let fracos: string[] = [];
+    try { fracos = (await api.get<{ fracos: string[] }>(`/estudos/${convId}/desempenho`)).fracos ?? []; } catch { /* sem desempenho, segue o plano */ }
+    const ordem = [...fracos.filter((f) => doPlano.some((x) => chave(x) === chave(f))), ...doPlano, ...fracos, ...doEdital];
+    const escolha = ordem.filter((x, i, a) => !resumidos.has(chave(x)) && a.findIndex((y) => chave(y) === chave(x)) === i).slice(0, 3);
+    if (!escolha.length) return toast("Nada pendente no plano para esta matéria: todos os tópicos já têm resumo.");
+    setMarcados(escolha); setTema(escolha.join("; "));
+  }
   const abrirMateria = (m: string) => { escolheMateria(m); setAba("resumo"); };
   /** O "ler" do cronograma: a matéria do tópico ("Português · Crase"), com o tópico como tema do resumo. */
   async function lerDoCronograma(topico: string) {
@@ -324,7 +365,7 @@ export default function Estudos({ conv, onCriada, onTurno }: { conv: Conv | null
       )}
       {!!erro && <Text style={{ color: c.err, paddingHorizontal: 14, paddingTop: 8, fontSize: 13 }} onPress={() => setErro("")}>{erro}</Text>}
 
-      {tudo && aba === "visao" ? <VisaoGeral casca={casca} onAbrir={abrirMateria}
+      {tudo && aba === "visao" ? <VisaoGeral casca={casca} onAbrir={abrirMateria} prefs={{ preferencias: aj.prefs, web: aj.web, profundidade: aj.prof }}
                                              onSimuladoFracos={() => { setProvaPendente({ topicos: [], instrucoes: "" }); setAba("simulado"); }} />
        : tudo && aba === "geral" ? <ResumoGeral casca={casca} onAbrir={abrirMateria} />
        : tudo && aba === "simulado" ? <Provas key="geral" geral casca={casca} pendente={provaPendente} onPendenteUsado={() => setProvaPendente(null)} />
@@ -337,6 +378,14 @@ export default function Estudos({ conv, onCriada, onTurno }: { conv: Conv | null
        : (
         <>
           <View style={{ flex: 1 }}>
+            {!!grupos.length && (
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0 }}
+                          contentContainerStyle={{ flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 10, paddingTop: 8 }}>
+                {grupos.map((g) => <Chip key={g.tema} rotulo={g.tema} max={200} ativo={!novo && grupoAberto === g} onPress={() => abrirGrupo(g)} />)}
+                <Chip icone={<Plus size={14} color={c.muted} />} rotulo="Novo tópico" ativo={novo}
+                      onPress={() => { setNovo(true); setAberto(null); setTema(""); setMarcados([]); }} />
+              </ScrollView>
+            )}
             {(rodandoResumo || aguardando || mostraFim || (resumo && resumo.status === "rodando" && !exec)) && resumo && (
               <View style={{ margin: 12, marginBottom: 0, backgroundColor: c.surface, borderRadius: 14, borderWidth: 1, borderColor: c.line, padding: 12, gap: 8 }}>
                 {aguardando ? (
@@ -415,15 +464,24 @@ export default function Estudos({ conv, onCriada, onTurno }: { conv: Conv | null
                     {!p?.materias?.length && (
                       <Botao rotulo="Começar pelo edital do concurso" icone={<Prancheta size={14} color={c.fg} />} onPress={() => setDoObjetivo("edital")} />
                     )}
-                    {!!doEdital.length && (
+                    {!!todosTopicos.length && (
                       <View style={{ gap: 6, alignSelf: "stretch", marginTop: 6 }}>
-                        <Text style={[s.faint, { fontSize: 12, textAlign: "center" }]}>Do edital · toque num tópico para pedir o resumo dele</Text>
+                        <Text style={[s.faint, { fontSize: 12, textAlign: "center" }]}>{doEdital.length ? "Do edital" : "Tópicos"} · toque em um ou mais tópicos para pedir o resumo deles</Text>
                         <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6, justifyContent: "center" }}>
-                          {doEdital.map((t) => (
-                            <Pressable key={t} onPress={() => setTema(t)} style={{ borderRadius: 999, paddingHorizontal: 11, paddingVertical: 6, backgroundColor: c.raised }}>
-                              <Text style={{ color: c.muted, fontSize: 13 }}>{t}</Text>
-                            </Pressable>
-                          ))}
+                          {todosTopicos.map((t) => {
+                            const lig = marcados.includes(t);
+                            return (
+                              <Pressable key={t} onPress={() => marcarTopico(t)} style={{ flexDirection: "row", alignItems: "center", gap: 4, borderRadius: 999, paddingHorizontal: 11, paddingVertical: 6,
+                                backgroundColor: lig ? c.accentSoft : c.raised, borderWidth: 1, borderColor: lig ? c.accentLine : "transparent" }}>
+                                {resumidos.has(chave(t)) && <Check size={12} color={c.ok} />}
+                                <Text style={{ color: lig ? c.fg : c.muted, fontSize: 13 }}>{t}</Text>
+                              </Pressable>
+                            );
+                          })}
+                        </View>
+                        <View style={{ flexDirection: "row", gap: 8, justifyContent: "center", marginTop: 4 }}>
+                          <Botao rotulo="Sugerir pelo plano" onPress={sugerir} />
+                          {!!marcados.length && <Botao primario rotulo={marcados.length === 1 ? "Resumir o tópico" : `Resumir ${marcados.length} tópicos`} onPress={() => estudar(marcados.join("; "))} />}
                         </View>
                       </View>
                     )}
