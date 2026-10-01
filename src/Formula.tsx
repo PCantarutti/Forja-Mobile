@@ -69,9 +69,10 @@ const SCRIPT = `<script>(function(){
       if(t.length<12||!s.rangeCount){b.style.display="none";return}
       var r=s.getRangeAt(0).getBoundingClientRect();b.style.display="block";
       b.style.left=Math.max(8,Math.min(innerWidth-b.offsetWidth-8,r.left+scrollX+r.width/2-b.offsetWidth/2))+"px";
-      b.style.top=Math.max(8,r.top+scrollY-44)+"px"});
-    b.addEventListener("click",function(){var t=String(getSelection()).trim();getSelection().removeAllRanges();b.style.display="none";
-      rn.postMessage(JSON.stringify({tipo:"explicar",trecho:t.slice(0,1500)}))});}
+      b.style.top=(r.bottom+scrollY+10)+"px"});   // abaixo da seleção: a barra Copiar/Compartilhar do Android fica em cima dela
+    // no touchstart, antes de o toque desfazer a seleção (no click ela já se foi e o botão sumiu)
+    b.addEventListener("touchstart",function(e){e.preventDefault();var t=String(getSelection()).trim();getSelection().removeAllRanges();b.style.display="none";
+      rn.postMessage(JSON.stringify({tipo:"explicar",trecho:t.slice(0,1500)}))},{passive:false});}
   window.__forja={ir:function(i){var h=document.querySelectorAll("h2")[i];h&&h.scrollIntoView({behavior:"smooth",block:"start"})}};
 })();</script>`;
 const CSP = `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data: blob: https:; font-src data:">`;
