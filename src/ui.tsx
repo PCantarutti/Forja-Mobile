@@ -77,7 +77,7 @@ export function Chip({ rotulo, icone, onPress, ativo, cor, max = 132 }:
                  borderColor: ativo ? c.accentLine : "transparent",
                  backgroundColor: ativo ? c.accentSoft : pressed ? c.lineStrong : c.raised })}>
       {icone}
-      {!!rotulo && <Text style={{ color: ativo ? c.accentText : cor ?? c.muted, fontSize: 13 }} numberOfLines={1}>{corta(rotulo)}</Text>}
+      {!!rotulo && <Text style={{ color: ativo ? c.accentText : cor ?? c.muted, fontSize: 13 }} numberOfLines={1}>{corta(rotulo, Math.max(14, Math.round(max / 7)))}</Text>}
     </Pressable>
   );
 }

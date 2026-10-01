@@ -72,6 +72,7 @@ export const Bubble = (p: P) => <Icone {...p}><Rect x={3} y={4} width={18} heigh
 export const Code = (p: P) => <Icone {...p}><Path d="m8 8-5 4 5 4M16 8l5 4-5 4M14 5l-4 14" /></Icone>;
 export const PanelLeft = (p: P) => <Icone {...p}><Rect x={3} y={4} width={18} height={16} rx={2} /><Path d="M9 4v16" /></Icone>;
 export const Sliders = (p: P) => <Icone {...p}><Path d="M4 8h10M18 8h2M4 16h4M12 16h8" /><Circle cx={16} cy={8} r={2} /><Circle cx={10} cy={16} r={2} /></Icone>;
+export const Livro = (p: P) => <Icone {...p}><Path d="M2 5.5A1.5 1.5 0 0 1 3.5 4H9a3 3 0 0 1 3 3v13a2 2 0 0 0-2-2H3.5A1.5 1.5 0 0 1 2 16.5z" /><Path d="M22 5.5A1.5 1.5 0 0 0 20.5 4H15a3 3 0 0 0-3 3v13a2 2 0 0 1 2-2h6.5a1.5 1.5 0 0 0 1.5-1.5z" /></Icone>;
 export const Quadro = (p: P) => <Icone {...p}><Rect x={3} y={4} width={18} height={16} rx={2} /><Path d="M9 4v16M15 4v16" /><Path d="M5.5 8h1.5M11 8h2M11 11h2M17 8h1.5" /></Icone>;
 export const Clipboard = (p: P) => <Icone {...p}><Rect x={6} y={4} width={12} height={16} rx={2} /><Path d="M9 4h6v3H9z" /><Path d="M9 11h6M9 15h4" /></Icone>;
 export const Wrench = (p: P) => <Icone {...p}><Path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.5 2.5-2.4-.6-.6-2.4z" /></Icone>;
