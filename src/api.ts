@@ -6,6 +6,10 @@ import * as SecureStore from "expo-secure-store";
 export type Par = { url: string | null; lan?: string | null; token: string };
 
 let par: Par | null = null;
+// A matéria aberta na tela Estudos (null = "Tudo"): toda chamada leva; o PC filtra e marca por ela em /api/estudos.
+let materiaEstudos: string | null = null;
+export const setMateriaEstudos = (m: string | null) => { materiaEstudos = m; };
+const cab = (): Record<string, string> => ({ "X-Forja-Token": par?.token ?? "", ...(materiaEstudos ? { "X-Forja-Materia": materiaEstudos } : {}) });
 let atual = ""; // endereço em uso: a rede local quando responde, senão a tailnet
 
 export async function carregaPar(): Promise<Par | null> {
@@ -33,7 +37,7 @@ async function info(u: string, ms: number): Promise<{ lan?: string | null } | nu
   const ac = new AbortController();
   const t = setTimeout(() => ac.abort(), ms);
   try {
-    const r = await fetch(`${u}/api/mobile`, { headers: { "X-Forja-Token": par?.token ?? "" }, signal: ac.signal });
+    const r = await fetch(`${u}/api/mobile`, { headers: { ...cab() }, signal: ac.signal });
     return r.ok ? await r.json() : null;
   } catch { return null; } finally { clearTimeout(t); }
 }
@@ -62,7 +66,7 @@ async function req<T>(path: string, init?: { method?: string; body?: unknown; es
   try {
     r = await fetch(`${base()}/api${path}`, {
       method: init?.method ?? "GET",
-      headers: { "Content-Type": "application/json", "X-Forja-Token": par?.token ?? "" },
+      headers: { "Content-Type": "application/json", ...cab() },
       body: init?.body === undefined ? undefined : JSON.stringify(init.body),
       signal: ac.signal,
     });
@@ -94,7 +98,7 @@ export const api = {
 export async function streamSSE(path: string, onEvent: (ev: any) => void, signal: AbortSignal, body?: unknown) {
   const r = await fetch(`${base()}/api${path}`, {
     method: body === undefined ? "GET" : "POST",
-    headers: { "Content-Type": "application/json", "X-Forja-Token": par?.token ?? "" },
+    headers: { "Content-Type": "application/json", ...cab() },
     body: body === undefined ? undefined : JSON.stringify(body),
     signal,
   });
@@ -133,7 +137,7 @@ export async function enviaArquivo<T>(path: string, arq: { uri: string; name: st
   const fd = new FormData();
   fd.append("file", envio as any);
   let r;
-  try { r = await fetch(`${base()}/api${path}`, { method: "POST", headers: { "X-Forja-Token": par?.token ?? "" }, body: fd as any }); }
+  try { r = await fetch(`${base()}/api${path}`, { method: "POST", headers: { ...cab() }, body: fd as any }); }
   finally { if (envio.exists) envio.delete(); }
   const dados = await r.json().catch(() => null);
   // O status vai junto: alguns erros são perguntas (409 = VRAM ocupada, confirmar e repetir), não falhas.
@@ -157,7 +161,7 @@ export const streamRun = (runId: string, cursor: number, onEvent: (ev: any) => v
 /** Imagem de rota com token como data URI. O <Image source={{ headers }}> do Android não mandava o header
  * (o /browser/shot levava 403), então a foto vem pelo fetch, que manda. Erro traz o `status` (503 = aba escondida). */
 export async function imagemComToken(path: string): Promise<string> {
-  const r = await fetch(`${base()}/api${path}`, { headers: { "X-Forja-Token": par?.token ?? "" } });
+  const r = await fetch(`${base()}/api${path}`, { headers: { ...cab() } });
   if (!r.ok) {
     const d = await r.json().catch(() => ({}));
     throw Object.assign(new Error(d?.detail ?? `HTTP ${r.status}`), { status: r.status });
@@ -170,7 +174,7 @@ export async function imagemComToken(path: string): Promise<string> {
 
 /** Texto de rota que não devolve JSON (o .csv do Anki): token no header, como o PC exige pela tailnet. */
 export async function textoComToken(path: string): Promise<string> {
-  const r = await fetch(`${base()}/api${path}`, { headers: { "X-Forja-Token": par?.token ?? "" } });
+  const r = await fetch(`${base()}/api${path}`, { headers: { ...cab() } });
   if (!r.ok) throw new Error(`HTTP ${r.status}`);
   return r.text();
 }

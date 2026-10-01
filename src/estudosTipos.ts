@@ -17,7 +17,10 @@ export type EstudosPreferencias = {
 };
 
 export type EstudosMaterial = { id: number; n: number; nome: string; arquivo: string; chars: number; paginas: number; ocr: boolean; uso: "conteudo" | "prova";
-  figuras?: number | null; gabarito?: boolean };   // recortadas do PDF (material de OCR não tem)
+  figuras?: number | null; gabarito?: boolean;   // recortadas do PDF (material de OCR não tem)
+  materia?: string };                              // id da matéria; "" = Geral (serve para todas)
+/** Matéria do objetivo (a conversa é o objetivo). acerto = % das entregas corrigidas. */
+export type EstudosMateria = { id: string; nome: string; acerto: number | null; entregas: number };
 /** Figura do PDF que uma questão usa (o recorte sai de /api/estudos-figura/<conv>/<material>/<id>). */
 export type EstudosFigura = { material: number; id: string; pagina: number; w?: number; h?: number; descricao?: string };
 export type EstudosTopico = { titulo: string; objetivo: string; pontos: string[]; status: "fila" | "escrevendo" | "pronto" | "erro" };
@@ -105,6 +108,7 @@ export type EstudosDuvidaMsg = {
 
 export type EstudosProjeto = {
   id: number; titulo: string; materiais: EstudosMaterial[];
+  materias: EstudosMateria[]; materia: string | null;   // a matéria desta leitura (null = "Tudo")
   resumos: { message_id: number; titulo: string; status: string; criado: string }[];
   resumo: EstudosEstado | null; rodando: number | null; provas: EstudosProvaResumo[]; topicos: string[];
   duvidas: Record<string, number>; revisao: EstudosPainel;

@@ -3,9 +3,9 @@ import { ActivityIndicator, AppState, Pressable, ScrollView, View } from "react-
 import * as DocumentPicker from "expo-document-picker";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Text, TextInput } from "./Texto";
-import { api, cancelado, enviaArquivo, lerAjustes, salvaAjustes, streamSSE } from "./api";
+import { api, cancelado, enviaArquivo, lerAjustes, salvaAjustes, setMateriaEstudos, streamSSE } from "./api";
 import type { Conv } from "./Chat";
-import { ArrowRight, Check, Cube, Globo, Livro, Paperclip, Prancheta, Search, X } from "./icones";
+import { ArrowRight, Check, Cube, Globo, Livro, Paperclip, Plus, Prancheta, Search, X } from "./icones";
 import { BotaoEnviar } from "./Imagens";
 import Modelos, { type Escolha } from "./Modelos";
 import { useTeclado } from "./teclado";
@@ -58,13 +58,21 @@ export default function Estudos({ conv, onCriada, onTurno }: { conv: Conv | null
   const abort = useRef<AbortController | null>(null);
   const doc = useRef<DocumentoRef>(null);
   const [mapa, setMapa] = useState(false);   // o resumo como mapa mental
+  // a matéria aberta (null = "Tudo"): vai em toda chamada pelo cabeçalho; o PC filtra as abas por ela
+  const [materia, setMateria] = useState<string | null>(null);
+  const materiaAtual = useRef<string | null>(null);
+  const [novaMateria, setNovaMateria] = useState<string | null>(null);
   const inset = useSafeAreaInsets();
   const teclado = useTeclado();
   const muda = (x: Partial<Ajustes>) => setAj((a) => { const n = { ...a, ...x }; salvaAjustes("estudos", n); return n; });
 
   const carrega = useCallback(async (id = convId): Promise<EstudosProjeto | null> => {
     if (id == null) { setP(null); return null; }
-    try { const np = await api.get<EstudosProjeto>(`/estudos/${id}`); setP(np); return np; } catch (e: any) { setErro(e.message); return null; }
+    try {
+      const np = await api.get<EstudosProjeto>(`/estudos/${id}`);
+      if ((np.materia ?? null) !== materiaAtual.current) return null;   // trocou de matéria no meio
+      setP(np); return np;
+    } catch (e: any) { setErro(e.message); return null; }
   }, [convId]);
 
   /** Acompanha uma execução (POST que responde em SSE, ou o GET .../stream de uma que o PC disparou). */
@@ -99,9 +107,40 @@ export default function Estudos({ conv, onCriada, onTurno }: { conv: Conv | null
   // Trocar de conversa derruba o stream da anterior — menos quando a "troca" é a conversa que garante()
   // acabou de criar para a execução que já está no ar.
   const criada = useRef<number | null>(null);
+  const usaMateria = (m: string | null) => { materiaAtual.current = m; setMateriaEstudos(m); setMateria(m); };
+  async function escolheMateria(m: string | null) {
+    if (m === materiaAtual.current || convId == null) return;
+    salvaAjustes(`estudos.materia.${convId}`, { v: m });
+    abort.current?.abort(); setExec(null); setTema("");
+    usaMateria(m);
+    await carrega();
+  }
+  async function criaMateria() {
+    const nome = (novaMateria ?? "").trim();
+    setNovaMateria(null);
+    if (!nome || convId == null) return;
+    try { const m = await api.post<{ id: string }>(`/estudos/${convId}/materias`, { nome }); await escolheMateria(m.id); }
+    catch (e: any) { setErro(e.message); }
+  }
+  useEffect(() => () => setMateriaEstudos(null), []);
+  // Matéria que sumiu volta para o Tudo; objetivo com uma matéria só (o estudo de antes) abre nela.
   useEffect(() => {
-    carrega();
-    return () => { if (criada.current !== convId) abort.current?.abort(); };
+    if (!p || convId == null) return;
+    const ids = (p.materias ?? []).map((x) => x.id);
+    lerAjustes<{ v: string | null } | null>(`estudos.materia.${convId}`, null).then((salva) => {
+      if (materiaAtual.current !== null && !ids.includes(materiaAtual.current)) escolheMateria(null);
+      else if (materiaAtual.current === null && !salva && ids.length === 1) escolheMateria(ids[0]);
+    });
+  }, [p?.materias]);   // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    let vivo = true;
+    (async () => {
+      const salva = convId == null ? null : await lerAjustes<{ v: string | null } | null>(`estudos.materia.${convId}`, null);
+      if (!vivo) return;
+      usaMateria(salva?.v ?? null);
+      carrega();
+    })();
+    return () => { vivo = false; if (criada.current !== convId) abort.current?.abort(); };
   }, [convId]);   // eslint-disable-line react-hooks/exhaustive-deps
   // Execução que o PC disparou (ou que já rodava ao abrir): acompanha pelo stream.
   useEffect(() => { if (p?.rodando && !exec) segue(`/estudos/execucao/${p.rodando}/stream`); }, [p?.rodando]);   // eslint-disable-line react-hooks/exhaustive-deps
@@ -218,8 +257,27 @@ export default function Estudos({ conv, onCriada, onTurno }: { conv: Conv | null
     </Pressable>
   );
 
+  const corAcerto = (a: number | null) => (a == null ? c.faint : a >= 70 ? c.ok : a >= 50 ? c.warn : c.err);
   return (
     <View style={{ flex: 1, paddingBottom: teclado }}>
+      {!imersao && !!p && convId != null && (
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="handled" style={{ flexGrow: 0 }}
+                    contentContainerStyle={{ flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 10, paddingTop: 8 }}>
+          <Chip rotulo="Tudo" ativo={materia === null} onPress={() => escolheMateria(null)} />
+          {(p.materias ?? []).map((x) => (
+            <Chip key={x.id} ativo={materia === x.id} max={180} onPress={() => escolheMateria(x.id)}
+                  icone={<View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: corAcerto(x.acerto) }} />}
+                  rotulo={x.acerto == null ? x.nome : `${x.nome} ${x.acerto}%`} />
+          ))}
+          {novaMateria === null ? (
+            <Chip icone={<Plus size={14} color={c.muted} />} onPress={() => setNovaMateria("")} />
+          ) : (
+            <TextInput autoFocus value={novaMateria} onChangeText={setNovaMateria} onSubmitEditing={criaMateria} onBlur={criaMateria}
+                       placeholder="Nova matéria" placeholderTextColor={c.faint} maxLength={60} returnKeyType="done"
+                       style={{ height: 32, minWidth: 140, borderRadius: 999, borderWidth: 1, borderColor: c.accentLine, paddingHorizontal: 12, color: c.fg, fontSize: 13 }} />
+          )}
+        </ScrollView>
+      )}
       {!imersao && (
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0, borderBottomColor: c.line, borderBottomWidth: 1 }}
                     contentContainerStyle={{ flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 10, paddingVertical: 6 }}>
@@ -234,11 +292,11 @@ export default function Estudos({ conv, onCriada, onTurno }: { conv: Conv | null
       )}
       {!!erro && <Text style={{ color: c.err, paddingHorizontal: 14, paddingTop: 8, fontSize: 13 }} onPress={() => setErro("")}>{erro}</Text>}
 
-      {aba === "provas" ? <Provas casca={casca} pendente={provaPendente} onPendenteUsado={() => setProvaPendente(null)} />
-       : aba === "duvidas" ? <Duvidas casca={casca} pendente={pendente} onPendenteUsado={() => setPendente(null)} />
-       : aba === "revisao" ? <Revisao casca={casca} />
-       : aba === "simulados" ? <Simulados casca={casca} onProvas={() => setAba("provas")} />
-       : aba === "desempenho" ? <Desempenho casca={casca} onProva={(x) => { setProvaPendente(x); setAba("provas"); }} />
+      {aba === "provas" ? <Provas key={materia ?? ""} casca={casca} pendente={provaPendente} onPendenteUsado={() => setProvaPendente(null)} />
+       : aba === "duvidas" ? <Duvidas key={materia ?? ""} casca={casca} pendente={pendente} onPendenteUsado={() => setPendente(null)} />
+       : aba === "revisao" ? <Revisao key={materia ?? ""} casca={casca} />
+       : aba === "simulados" ? <Simulados key={materia ?? ""} casca={casca} onProvas={() => setAba("provas")} />
+       : aba === "desempenho" ? <Desempenho key={materia ?? ""} casca={casca} onProva={(x) => { setProvaPendente(x); setAba("provas"); }} />
        : (
         <>
           <View style={{ flex: 1 }}>
