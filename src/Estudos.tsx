@@ -293,8 +293,8 @@ export default function Estudos({ conv, onCriada, onTurno }: { conv: Conv | null
               </View>
             )}
             {!!texto && mapa && secoes.length > 1 && (
-              <EstudosMapaMental md={texto} tema={resumo?.tema ?? ""}
-                                 onAbrir={(i) => { setMapa(false); setTimeout(() => doc.current?.irTitulo(i), 120); }} />
+              <EstudosMapaMental key={resumo?.message_id} md={texto} tema={resumo?.tema ?? ""}
+                                 onAbrir={(i, t) => { setMapa(false); setTimeout(() => doc.current?.irTitulo(i, t), 120); }} />
             )}
             {texto ? (
               // o resumo fica montado debaixo do mapa: voltar do mapa já cai na seção, sem recarregar a página
@@ -406,7 +406,7 @@ export default function Estudos({ conv, onCriada, onTurno }: { conv: Conv | null
         <Lista opcoes={PROFUNDIDADES.map((x) => ({ id: x.id, rotulo: x.rotulo, dica: x.dica }))} valor={aj.prof} onEscolhe={(v) => { muda({ prof: v }); setFolha(null); }} />
       </Folha>
       <Folha aberta={folha === "sumario"} titulo="Sumário" onFecha={() => setFolha(null)}>
-        <Lista opcoes={secoes.map((t, i) => ({ id: String(i), rotulo: t }))} valor="" onEscolhe={(v) => { setFolha(null); setTimeout(() => doc.current?.irPara(Number(v)), 250); }} />
+        <Lista opcoes={secoes.map((t, i) => ({ id: String(i), rotulo: t }))} valor="" onEscolhe={(v) => { setFolha(null); setMapa(false); setTimeout(() => doc.current?.irPara(Number(v)), 250); }} />
       </Folha>
       <Folha aberta={folha === "modelos"} titulo="Modelos do estudo" onFecha={() => setFolha(null)}>
         <View style={{ gap: 8 }}>

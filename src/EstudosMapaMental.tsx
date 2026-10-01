@@ -10,7 +10,7 @@ import { BotaoIcone, Chip, toast } from "./ui";
 
 /** O resumo como mapa mental (o mesmo do PC: estudosMapa.ts). No celular começa só com os tópicos — a bolinha
  *  abre o ramo, tocar no nome abre a seção no resumo. Rola nos dois sentidos; − e + mudam o tamanho. */
-export default function EstudosMapaMental({ md, tema, onAbrir }: { md: string; tema: string; onAbrir: (ancora: number) => void }) {
+export default function EstudosMapaMental({ md, tema, onAbrir }: { md: string; tema: string; onAbrir: (ancora: number, texto: string) => void }) {
   const raiz = useMemo(() => arvore(md, tema), [md, tema]);
   const todos = useMemo(() => comFilhos(raiz), [raiz]);
   const [abertos, setAbertos] = useState<Set<string>>(() => new Set());
@@ -20,14 +20,29 @@ export default function EstudosMapaMental({ md, tema, onAbrir }: { md: string; t
   const h = useRef<ScrollView>(null), v = useRef<ScrollView>(null);
   const centro = mapa.nos.find((n) => n.nivel === 0)!;
 
-  // o tema no meio da tela ao abrir, ao mudar o tamanho e ao abrir/fechar ramo (o desenho se recompõe)
+  // onde a rolagem está (o onScroll das duas): abrir um ramo recompõe o desenho e as coordenadas mudam
+  const pos = useRef({ x: 0, y: 0 });
+  const antes = useRef<{ x: number; y: number; k: number } | null>(null);
   useEffect(() => {
+    const a = antes.current;
+    antes.current = { x: centro.x, y: centro.y, k };
+    let x: number, y: number;
+    if (!a) {   // 1ª vez: o tema no meio
+      x = (centro.x + centro.w / 2) * k - janela.width / 2;
+      y = (centro.y + centro.h / 2) * k - janela.height * 0.3;
+    } else if (a.k !== k) {   // zoom: o meio da tela fica no mesmo ponto do desenho
+      x = ((pos.current.x + janela.width / 2) * k) / a.k - janela.width / 2;
+      y = ((pos.current.y + janela.height * 0.3) * k) / a.k - janela.height * 0.3;
+    } else {   // ramo abriu ou fechou: o tema fica parado na tela
+      x = pos.current.x + (centro.x - a.x) * k;
+      y = pos.current.y + (centro.y - a.y) * k;
+    }
     const t = setTimeout(() => {
-      h.current?.scrollTo({ x: Math.max(0, (centro.x + centro.w / 2) * k - janela.width / 2), animated: false });
-      v.current?.scrollTo({ y: Math.max(0, (centro.y + centro.h / 2) * k - janela.height * 0.3), animated: false });
+      h.current?.scrollTo({ x: Math.max(0, x), animated: false });
+      v.current?.scrollTo({ y: Math.max(0, y), animated: false });
     }, 30);
     return () => clearTimeout(t);
-  }, [centro.x, centro.y, k, janela.width, janela.height]);   // eslint-disable-line react-hooks/exhaustive-deps
+  }, [centro.x, centro.y, k]);   // eslint-disable-line react-hooks/exhaustive-deps
 
   const alternar = (id: string) => setAbertos((a) => {
     const n = new Set(a);
@@ -47,8 +62,10 @@ export default function EstudosMapaMental({ md, tema, onAbrir }: { md: string; t
         <Text style={{ color: c.muted, fontFamily: mono, fontSize: 12, minWidth: 40, textAlign: "center" }}>{Math.round(k * 100)}%</Text>
         <BotaoIcone lado={34} onPress={() => setK((x) => Math.min(2, Math.round((x + 0.15) * 100) / 100))}><Plus size={15} color={c.fg} /></BotaoIcone>
       </View>
-      <ScrollView ref={v} style={{ flex: 1 }} contentContainerStyle={{ minHeight: "100%", justifyContent: "center" }}>
-        <ScrollView ref={h} horizontal contentContainerStyle={{ minWidth: "100%", justifyContent: "center" }} showsHorizontalScrollIndicator={false}>
+      <ScrollView ref={v} style={{ flex: 1 }} contentContainerStyle={{ minHeight: "100%", justifyContent: "center" }}
+                  scrollEventThrottle={32} onScroll={(e) => { pos.current.y = e.nativeEvent.contentOffset.y; }}>
+        <ScrollView ref={h} horizontal contentContainerStyle={{ minWidth: "100%", justifyContent: "center" }} showsHorizontalScrollIndicator={false}
+                    scrollEventThrottle={32} onScroll={(e) => { pos.current.x = e.nativeEvent.contentOffset.x; }}>
           <Svg width={mapa.largura * k} height={mapa.altura * k} viewBox={`0 0 ${mapa.largura} ${mapa.altura}`}>
             {mapa.ligacoes.map((l) => (
               <Path key={l.id} d={l.d} fill="none" stroke={corDo(l.ramo)} strokeOpacity={0.55} strokeWidth={l.id.startsWith("raiz-") ? 2.4 : 1.6} />
@@ -64,14 +81,14 @@ export default function EstudosMapaMental({ md, tema, onAbrir }: { md: string; t
   );
 }
 
-function No({ n, onAbrir, onAlternar }: { n: NoMapa; onAbrir: (ancora: number) => void; onAlternar: (id: string) => void }) {
+function No({ n, onAbrir, onAlternar }: { n: NoMapa; onAbrir: (ancora: number, texto: string) => void; onAlternar: (id: string) => void }) {
   const cor = corDo(n.ramo);
   const raiz = n.nivel === 0, topico = n.nivel === 1;
   const fonte = fonteDe(n.nivel);
   const bx = n.lado === -1 ? n.x - 9 : n.x + n.w + 9, by = n.y + n.h / 2;
   return (
     <G>
-      <G onPress={raiz ? undefined : () => onAbrir(n.ancora)}>
+      <G onPress={raiz ? undefined : () => onAbrir(n.ancora, n.texto)}>
         <Rect x={n.x} y={n.y} width={n.w} height={n.h} rx={raiz ? n.h / 2 : topico ? 10 : 7}
               fill={raiz ? c.accent : topico ? cor : c.raised} fillOpacity={raiz ? 1 : topico ? 0.16 : 1}
               stroke={raiz ? "none" : cor} strokeOpacity={topico ? 1 : 0.45} strokeWidth={topico ? 1.5 : 1} />

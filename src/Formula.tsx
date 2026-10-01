@@ -56,6 +56,10 @@ hr{border:0;border-top:1px solid ${c.line}}
 .katex-display{overflow-x:auto;overflow-y:hidden;padding:.2em 0;margin:.6em 0}
 .katex{font-size:1.06em}
 img{max-width:100%}
+body{position:relative}.md{position:relative;z-index:1}
+#destaque{position:absolute;left:6px;right:6px;display:none;z-index:0;pointer-events:none;border-radius:12px;background:${c.accent}1f;
+  box-shadow:inset 0 0 0 1px ${c.accent}59;animation:surgir .35s ease-out}
+@keyframes surgir{from{opacity:0;transform:scaleY(.96)}to{opacity:1;transform:none}}
 #explicar{position:absolute;display:none;z-index:9;background:${c.accent};color:${c.accentFg};border:0;border-radius:9px;padding:7px 11px;font:600 13px system-ui,sans-serif;box-shadow:0 4px 14px rgba(0,0,0,.35)}
 `;
 }
@@ -73,8 +77,18 @@ const SCRIPT = `<script>(function(){
     // no touchstart, antes de o toque desfazer a seleção (no click ela já se foi e o botão sumiu)
     b.addEventListener("touchstart",function(e){e.preventDefault();var t=String(getSelection()).trim();getSelection().removeAllRanges();b.style.display="none";
       rn.postMessage(JSON.stringify({tipo:"explicar",trecho:t.slice(0,1500)}))},{passive:false});}
-  window.__forja={ir:function(i,sel){var h=document.querySelectorAll(sel||"h2")[i];if(!h)return;h.scrollIntoView({behavior:"smooth",block:"start"});
-    h.animate&&h.animate([{background:"rgba(127,127,127,.25)"},{background:"transparent"}],{duration:1800,easing:"ease-out"})}};
+  function normal(t){return String(t||"").toLowerCase().replace(/[^\\p{L}\\p{N}]+/gu,"")}
+  window.__forja={ir:function(i,sel,texto){var hs=document.querySelectorAll(sel||"h2"),h=hs[i];
+    if(texto){var alvo=normal(texto),k=-1;for(var j=0;j<hs.length;j++){if(alvo&&normal(hs[j].textContent).indexOf(alvo)>=0&&(k<0||Math.abs(j-i)<Math.abs(k-i)))k=j}if(k>=0)h=hs[k]}
+    if(!h)return;h.scrollIntoView({behavior:"smooth",block:"start"});
+    // a seção inteira fica destacada: o título e tudo até o próximo título do mesmo nível ou de cima
+    var nv=+h.tagName[1],fim=h;for(var x=h.nextElementSibling;x&&!(/^H[1-6]$/.test(x.tagName)&&+x.tagName[1]<=nv);x=x.nextElementSibling)fim=x;
+    var d=document.getElementById("destaque")||document.body.appendChild(Object.assign(document.createElement("div"),{id:"destaque"}));
+    var a=h.getBoundingClientRect(),z=fim.getBoundingClientRect();
+    d.style.top=(a.top+scrollY-8)+"px";d.style.height=(z.bottom-a.top+16)+"px";d.style.display="block";
+    d.style.animation="none";void d.offsetWidth;d.style.animation=""}};
+  // um toque no texto (sem arrastar) tira o destaque; rolar não tira
+  document.addEventListener("click",function(e){var d=document.getElementById("destaque");if(d&&!(e.target.closest&&e.target.closest("#explicar")))d.style.display="none"});
 })();</script>`;
 const CSP = `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data: blob: https:; font-src data:">`;
 
@@ -105,7 +119,7 @@ function FormulaWeb({ texto, fundo, tamanho }: { texto: string; fundo: string; t
 }
 
 /** irPara: a i-ésima seção (##); irTitulo: o i-ésimo título entre ##, ### e #### (a âncora do mapa mental). */
-export type DocumentoRef = { irPara: (i: number) => void; irTitulo: (i: number) => void };
+export type DocumentoRef = { irPara: (i: number) => void; irTitulo: (i: number, texto: string) => void };
 
 /** O resumo inteiro: uma WebView que rola por dentro (um resumo de 15 páginas numa WebView dentro do ScrollView
  *  passava do limite de altura do Android). Marcar um trecho mostra "Explicar de outro jeito". */
@@ -114,7 +128,8 @@ export const DocumentoRico = forwardRef<DocumentoRef, { markdown: string; onExpl
   const html = useMemo(() => pagina(paraHtml(markdown), c.bg, 15.5, !!onExplicar, 16), [markdown, onExplicar]);
   useImperativeHandle(ref, () => ({
     irPara: (i) => web.current?.injectJavaScript(`window.__forja && __forja.ir(${i}); true;`),
-    irTitulo: (i) => web.current?.injectJavaScript(`window.__forja && __forja.ir(${i}, "h2, h3, h4"); true;`),
+    // pelo texto, como no PC (estudosMapa.acharTitulo): a âncora é só o palpite
+    irTitulo: (i, texto) => web.current?.injectJavaScript(`window.__forja && __forja.ir(${i}, "h2, h3, h4", ${JSON.stringify(texto)}); true;`),
   }), []);
   return (
     <WebView ref={web} originWhitelist={["*"]} source={{ html }} style={{ flex: 1, backgroundColor: c.bg }} overScrollMode="never"
