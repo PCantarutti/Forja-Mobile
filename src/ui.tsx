@@ -68,10 +68,10 @@ export function Folha({ aberta, titulo, onFecha, children, altura = "auto", fixo
 }
 
 /** Pílula da linha de baixo do input (modelo, esforço, anexos…). `ativo` = ligado (acento suave). */
-export function Chip({ rotulo, icone, onPress, ativo, cor, max = 132 }:
-  { rotulo?: string; icone?: ReactNode; onPress: () => void; ativo?: boolean; cor?: string; max?: number }) {
+export function Chip({ rotulo, icone, onPress, onLongPress, ativo, cor, max = 132 }:
+  { rotulo?: string; icone?: ReactNode; onPress: () => void; onLongPress?: () => void; ativo?: boolean; cor?: string; max?: number }) {
   return (
-    <Pressable onPress={onPress} hitSlop={4}
+    <Pressable onPress={onPress} onLongPress={onLongPress} hitSlop={4}
                style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 5, borderRadius: 999,
                  height: 32, minWidth: 32, paddingHorizontal: rotulo ? 10 : 0, maxWidth: max, borderWidth: 1,
                  borderColor: ativo ? c.accentLine : "transparent",

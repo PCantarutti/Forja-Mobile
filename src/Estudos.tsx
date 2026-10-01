@@ -14,6 +14,7 @@ import { Area, Botao, Chip, Folha, Lista, Pulsa, Seletor, toast } from "./ui";
 import { DocumentoRico, type DocumentoRef, sumario } from "./Formula";
 import EstudosMapaMental from "./EstudosMapaMental";
 import Simulados from "./EstudosSimulados";
+import { FolhaMateria, LerEdital, ResumoGeral, TrazerEstudo, VisaoGeral, corAcerto as corDoAcerto } from "./EstudosTudo";
 import { type Aba, type Casca, type EstudosEstado, type EstudosPreferencias, type EstudosProjeto, type Exec, type Modelo,
          type Pendente, type ProvaPendente, PEDIDO_CLAUDE, numeros } from "./estudosTipos";
 import Provas from "./EstudosProva";
@@ -62,6 +63,8 @@ export default function Estudos({ conv, onCriada, onTurno }: { conv: Conv | null
   const [materia, setMateria] = useState<string | null>(null);
   const materiaAtual = useRef<string | null>(null);
   const [novaMateria, setNovaMateria] = useState<string | null>(null);
+  const [daMateria, setDaMateria] = useState<string | null>(null);   // folha da matéria (toque longo no chip)
+  const [doObjetivo, setDoObjetivo] = useState<null | "menu" | "edital" | "trazer">(null);
   const inset = useSafeAreaInsets();
   const teclado = useTeclado();
   const muda = (x: Partial<Ajustes>) => setAj((a) => { const n = { ...a, ...x }; salvaAjustes("estudos", n); return n; });
@@ -257,7 +260,16 @@ export default function Estudos({ conv, onCriada, onTurno }: { conv: Conv | null
     </Pressable>
   );
 
-  const corAcerto = (a: number | null) => (a == null ? c.faint : a >= 70 ? c.ok : a >= 50 ? c.warn : c.err);
+  const corAcerto = corDoAcerto;
+  // No "Tudo" de um objetivo com matérias: Visão geral, Simulado geral, Resumo geral, Revisão e Desempenho (de tudo).
+  const tudo = materia === null && !!p?.materias?.length;
+  const doEdital = p?.materias?.find((x) => x.id === materia)?.topicos ?? [];
+  const abrirMateria = (m: string) => { escolheMateria(m); setAba("resumo"); };
+  useEffect(() => {   // as abas do Tudo não existem numa matéria, e vice-versa
+    const soTudo: Aba[] = ["visao", "simulado", "geral"];
+    if (tudo && !["revisao", "desempenho", ...soTudo].includes(aba)) setAba("visao");
+    else if (!tudo && soTudo.includes(aba)) setAba("resumo");
+  }, [tudo]);   // eslint-disable-line react-hooks/exhaustive-deps
   return (
     <View style={{ flex: 1, paddingBottom: teclado }}>
       {!imersao && !!p && convId != null && (
@@ -265,12 +277,12 @@ export default function Estudos({ conv, onCriada, onTurno }: { conv: Conv | null
                     contentContainerStyle={{ flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 10, paddingTop: 8 }}>
           <Chip rotulo="Tudo" ativo={materia === null} onPress={() => escolheMateria(null)} />
           {(p.materias ?? []).map((x) => (
-            <Chip key={x.id} ativo={materia === x.id} max={180} onPress={() => escolheMateria(x.id)}
+            <Chip key={x.id} ativo={materia === x.id} max={180} onPress={() => escolheMateria(x.id)} onLongPress={() => setDaMateria(x.id)}
                   icone={<View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: corAcerto(x.acerto) }} />}
                   rotulo={x.acerto == null ? x.nome : `${x.nome} ${x.acerto}%`} />
           ))}
           {novaMateria === null ? (
-            <Chip icone={<Plus size={14} color={c.muted} />} onPress={() => setNovaMateria("")} />
+            <Chip icone={<Plus size={14} color={c.muted} />} onPress={() => setDoObjetivo("menu")} />
           ) : (
             <TextInput autoFocus value={novaMateria} onChangeText={setNovaMateria} onSubmitEditing={criaMateria} onBlur={criaMateria}
                        placeholder="Nova matéria" placeholderTextColor={c.faint} maxLength={60} returnKeyType="done"
@@ -281,22 +293,34 @@ export default function Estudos({ conv, onCriada, onTurno }: { conv: Conv | null
       {!imersao && (
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0, borderBottomColor: c.line, borderBottomWidth: 1 }}
                     contentContainerStyle={{ flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 10, paddingVertical: 6 }}>
-          {abaBtn("resumo", "Resumo")}
-          {abaBtn("provas", "Provas", p?.provas.length)}
-          {abaBtn("simulados", "Simulados", p?.simulados?.length ? new Set(p.simulados.map((x) => x.material_id)).size : undefined)}
-          {abaBtn("duvidas", "Dúvidas", p?.duvidas?.geral)}
-          {abaBtn("revisao", "Revisão", p?.revisao?.vencem)}
-          {abaBtn("desempenho", "Desempenho")}
+          {tudo ? <>
+            {abaBtn("visao", "Visão geral")}
+            {abaBtn("simulado", "Simulado geral")}
+            {abaBtn("geral", "Resumo geral")}
+            {abaBtn("revisao", "Revisão", p?.revisao?.vencem)}
+            {abaBtn("desempenho", "Desempenho")}
+          </> : <>
+            {abaBtn("resumo", "Resumo")}
+            {abaBtn("provas", "Provas", p?.provas.length)}
+            {abaBtn("simulados", "Simulados", p?.simulados?.length ? new Set(p.simulados.map((x) => x.material_id)).size : undefined)}
+            {abaBtn("duvidas", "Dúvidas", p?.duvidas?.geral)}
+            {abaBtn("revisao", "Revisão", p?.revisao?.vencem)}
+            {abaBtn("desempenho", "Desempenho")}
+          </>}
           {!!exec && exec.tipo !== "resumo" && <Pulsa cor={c.accent} />}
         </ScrollView>
       )}
       {!!erro && <Text style={{ color: c.err, paddingHorizontal: 14, paddingTop: 8, fontSize: 13 }} onPress={() => setErro("")}>{erro}</Text>}
 
-      {aba === "provas" ? <Provas key={materia ?? ""} casca={casca} pendente={provaPendente} onPendenteUsado={() => setProvaPendente(null)} />
+      {tudo && aba === "visao" ? <VisaoGeral casca={casca} onAbrir={abrirMateria}
+                                             onSimuladoFracos={() => { setProvaPendente({ topicos: [], instrucoes: "" }); setAba("simulado"); }} />
+       : tudo && aba === "geral" ? <ResumoGeral casca={casca} onAbrir={abrirMateria} />
+       : tudo && aba === "simulado" ? <Provas key="geral" geral casca={casca} pendente={provaPendente} onPendenteUsado={() => setProvaPendente(null)} />
+       : aba === "provas" ? <Provas key={materia ?? ""} casca={casca} pendente={provaPendente} onPendenteUsado={() => setProvaPendente(null)} />
        : aba === "duvidas" ? <Duvidas key={materia ?? ""} casca={casca} pendente={pendente} onPendenteUsado={() => setPendente(null)} />
        : aba === "revisao" ? <Revisao key={materia ?? ""} casca={casca} />
        : aba === "simulados" ? <Simulados key={materia ?? ""} casca={casca} onProvas={() => setAba("provas")} />
-       : aba === "desempenho" ? <Desempenho key={materia ?? ""} casca={casca} onProva={(x) => { setProvaPendente(x); setAba("provas"); }} />
+       : aba === "desempenho" ? <Desempenho key={materia ?? ""} casca={casca} onProva={(x) => { setProvaPendente(x); setAba(tudo ? "simulado" : "provas"); }} />
        : (
         <>
           <View style={{ flex: 1 }}>
@@ -375,6 +399,18 @@ export default function Estudos({ conv, onCriada, onTurno }: { conv: Conv | null
                       Diga o tema e anexe apostilas, slides ou provas antigas. A IA lê tudo, completa com a web se você quiser e
                       escreve um resumo didático; depois vêm as provas, as dúvidas e a revisão.
                     </Text>
+                    {!!doEdital.length && (
+                      <View style={{ gap: 6, alignSelf: "stretch", marginTop: 6 }}>
+                        <Text style={[s.faint, { fontSize: 12, textAlign: "center" }]}>Do edital · toque num tópico para pedir o resumo dele</Text>
+                        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6, justifyContent: "center" }}>
+                          {doEdital.map((t) => (
+                            <Pressable key={t} onPress={() => setTema(t)} style={{ borderRadius: 999, paddingHorizontal: 11, paddingVertical: 6, backgroundColor: c.raised }}>
+                              <Text style={{ color: c.muted, fontSize: 13 }}>{t}</Text>
+                            </Pressable>
+                          ))}
+                        </View>
+                      </View>
+                    )}
                   </>
                 )}
               </View>
@@ -412,6 +448,21 @@ export default function Estudos({ conv, onCriada, onTurno }: { conv: Conv | null
         </>
       )}
 
+      <FolhaMateria casca={casca} m={p?.materias?.find((x) => x.id === daMateria) ?? null} onFecha={() => setDaMateria(null)}
+                    onTirou={() => { if (materia === daMateria) escolheMateria(null); }} />
+      <Folha aberta={doObjetivo === "menu"} titulo="Objetivo" onFecha={() => setDoObjetivo(null)}>
+        <Lista opcoes={[{ id: "nova", rotulo: "Nova matéria", dica: "Português, Direito Administrativo…" },
+                        { id: "edital", rotulo: "Ler o edital", dica: "As matérias, o peso de cada uma e os tópicos" },
+                        { id: "trazer", rotulo: "Trazer um estudo", dica: "Juntar um estudo antigo aqui, com todo o progresso" }]}
+               valor="" onEscolhe={(v) => { if (v === "nova") { setDoObjetivo(null); setNovaMateria(""); } else setDoObjetivo(v as "edital" | "trazer"); }} />
+        <Text style={[s.faint, { fontSize: 12.5 }]}>Toque longo numa matéria para renomear, mudar o peso ou tirar.</Text>
+      </Folha>
+      <Folha aberta={doObjetivo === "edital"} titulo="Ler o edital" altura="90%" onFecha={() => setDoObjetivo(null)}>
+        <LerEdital casca={casca} onFeito={() => { setDoObjetivo(null); escolheMateria(null); carrega(); }} />
+      </Folha>
+      <Folha aberta={doObjetivo === "trazer"} titulo="Trazer um estudo" onFecha={() => setDoObjetivo(null)}>
+        <TrazerEstudo casca={casca} onFeito={() => { setDoObjetivo(null); carrega(); onTurno(); }} />
+      </Folha>
       <Folha aberta={folha === "material"} titulo={`Material · ${materiais.length}`} onFecha={() => setFolha(null)}>
         {materiais.map((m) => (
           <View key={m.id} style={{ gap: 6, borderBottomColor: c.line, borderBottomWidth: 1, paddingBottom: 12 }}>
@@ -421,6 +472,14 @@ export default function Estudos({ conv, onCriada, onTurno }: { conv: Conv | null
             </View>
             <Text style={{ color: c.faint, fontFamily: mono, fontSize: 11.5 }}>{[m.paginas ? `${m.paginas} págs` : "", `${Math.round(m.chars / 1000)} mil caracteres`, m.ocr ? "OCR" : "", m.figuras ? `${m.figuras} figura${m.figuras === 1 ? "" : "s"}` : ""].filter(Boolean).join(" · ")}</Text>
             <Seletor cheio altura={32} valor={m.uso} opcoes={[{ id: "conteudo", rotulo: "Conteúdo" }, { id: "prova", rotulo: "Prova / simulado" }]} onMuda={(v) => usoDe(m.id, v)} />
+            {!!p?.materias?.length && (
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6 }}>
+                {[{ id: "", nome: "Geral" }, ...p.materias].map((x) => (
+                  <Chip key={x.id} rotulo={x.nome} max={160} ativo={(m.materia ?? "") === x.id}
+                        onPress={() => api.patch(`/estudos/material/${m.id}`, { materia: x.id }).then(() => carrega()).catch((e) => setErro(e.message))} />
+                ))}
+              </ScrollView>
+            )}
           </View>
         ))}
         {!materiais.length && <Text style={[s.muted, { lineHeight: 19 }]}>Apostila, slides, anotações ou uma prova antiga (PDF, Word, PowerPoint, texto ou foto). Prova anexada vira o perfil do que cai.</Text>}

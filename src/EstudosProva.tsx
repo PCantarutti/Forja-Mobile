@@ -22,7 +22,7 @@ type Resposta = number | boolean | string;
 type Conferida = Pick<EstudosQuestao, "correta" | "explicacao" | "por_alternativa" | "resposta_modelo" | "rubrica" | "pagina"> & { certa: boolean | null };
 type Rascunho = { respostas: Record<string, Resposta>; marcadas: string[]; atual: number; inicio: number; conferidas: Record<string, Conferida> };
 type Vista = { tipo: "lista" } | { tipo: "fazer"; prova: EstudosProva; treino: boolean } | { tipo: "resultado"; t: EstudosTentativa };
-type Cfg = Pick<EstudosProvaConfig, "me" | "vf" | "disc" | "dificuldade" | "estilo" | "tempo" | "topicos"> & { figuras?: number };
+type Cfg = Pick<EstudosProvaConfig, "me" | "vf" | "disc" | "dificuldade" | "estilo" | "tempo" | "topicos"> & { figuras?: number; distribuicao?: "peso" | "fracos" };
 type Estado = "neutra" | "minha" | "certa" | "errada";
 
 const PADRAO: Cfg = { me: 8, vf: 2, disc: 0, dificuldade: "mista", estilo: true, tempo: 0, topicos: [] };
@@ -524,7 +524,8 @@ function Resultado({ casca, t, corrigindo, onVoltar, onRefazer, onParar }: {
 // ------------------------------------------------------------------ a aba
 
 /** Aba Provas: lista de provas, gerar, fazer (prova e treino), resultado. */
-export default function Provas({ casca, pendente, onPendenteUsado }: { casca: Casca; pendente: ProvaPendente | null; onPendenteUsado: () => void }) {
+export default function Provas({ casca, pendente, onPendenteUsado, geral }: { casca: Casca; pendente: ProvaPendente | null; onPendenteUsado: () => void;
+                                                 geral?: boolean }) {   // geral: o simulado do "Tudo" (todas as matérias, pelo peso)
   const [vista, setVista] = useState<Vista>({ tipo: "lista" });
   const [cfg, setCfg] = useState<Cfg>(PADRAO);
   const [cfgLida, setCfgLida] = useState(false);
@@ -542,7 +543,11 @@ export default function Provas({ casca, pendente, onPendenteUsado }: { casca: Ca
   useEffect(() => { casca.setImersao(vista.tipo === "fazer"); return () => casca.setImersao(false); }, [vista.tipo]);   // eslint-disable-line react-hooks/exhaustive-deps
 
   const p = casca.p;
-  const provas = [...(p?.provas ?? [])].reverse();
+  // no Tudo, só os simulados gerais (as provas de cada matéria ficam na matéria)
+  const provas = [...(p?.provas ?? [])].filter((x) => !geral || x.config?.geral).reverse();
+  const ms = p?.materias ?? [];
+  const pesoDe = (m: (typeof ms)[number]) => (m.peso ?? 1) * (cfg.distribuicao === "fracos" ? 1 + 2 * (1 - (m.acerto ?? 50) / 100) : 1);
+  const somaPeso = ms.reduce((t, m) => t + pesoDe(m), 0) || 1;
   const gerando = casca.exec?.tipo === "prova" ? casca.exec : null;
   const corrigindo = casca.exec?.tipo === "tentativa" ? casca.exec : null;
   // Pedido ao Claude não roda (o stream fecha na hora): quem sabe dele é a lista, até o carimbo avisar que acabou.
@@ -566,7 +571,11 @@ export default function Provas({ casca, pendente, onPendenteUsado }: { casca: Ca
     if (!casca.modelo) return toast("Escolha um modelo em Modelos (ou no chat) antes.");
     setFolha(false);
     setPronta(null);
-    const config = { ...cfg, figuras: comFigura, topicos: extra?.topicos ?? escolhidos, instrucoes: (extra?.instrucoes ?? instrucoes).trim() };
+    const config = geral
+      // os pontos fracos pedidos no Tudo viram a distribuição "fracos" do simulado geral
+      ? { ...cfg, figuras: 0, topicos: [], estilo: false, geral: true, distribuicao: extra ? "fracos" : (cfg.distribuicao ?? "peso"),
+          instrucoes: (extra?.instrucoes ?? instrucoes).trim() }
+      : { ...cfg, figuras: comFigura, topicos: extra?.topicos ?? escolhidos, instrucoes: (extra?.instrucoes ?? instrucoes).trim() };
     try {
       const id = await casca.garante();
       const u: EstudosProva | null = await casca.segue(`/estudos/${id}/prova`, { config, ...casca.modelo });
@@ -658,7 +667,17 @@ export default function Provas({ casca, pendente, onPendenteUsado }: { casca: Ca
   return (
     <View style={{ flex: 1 }}>
       <ScrollView contentContainerStyle={{ padding: 14, gap: 12, flexGrow: 1 }} keyboardShouldPersistTaps="handled">
-        {!provas.length && !gerando && (
+        {geral && !provas.length && !gerando && (
+          <View style={{ flex: 1, alignItems: "center", justifyContent: "center", padding: 24, gap: 10 }}>
+            <Prancheta size={32} color={c.muted} />
+            <Text style={{ color: c.fg, fontSize: 22, fontWeight: "600" }}>Simulado geral</Text>
+            <Text style={[s.muted, { textAlign: "center", lineHeight: 19 }]}>
+              Questões de todas as matérias do objetivo, na proporção do peso de cada uma (ou do peso vezes o que falta acertar). Na
+              entrega, a nota sai por matéria e cada erro vai para o caderno da matéria. Matéria sem resumo nem material fica de fora.
+            </Text>
+          </View>
+        )}
+        {!geral && !provas.length && !gerando && (
           <View style={{ flex: 1, alignItems: "center", justifyContent: "center", padding: 24, gap: 10 }}>
             <Prancheta size={32} color={c.muted} />
             <Text style={{ color: c.fg, fontSize: 22, fontWeight: "600" }}>Provas</Text>
@@ -739,9 +758,10 @@ export default function Provas({ casca, pendente, onPendenteUsado }: { casca: Ca
               <Chip rotulo={plural(total, "questão", "questões")} icone={<Prancheta size={14} color={total > 40 ? c.err : c.muted} />} cor={total > 40 ? c.err : undefined}
                     onPress={() => setFolha(true)} />
               <Chip rotulo={dificuldade.rotulo} onPress={() => setFolha(true)} />
-              <Chip rotulo={escolhidos.length ? `Tópicos ${escolhidos.length}/${topicosDisp.length}` : "Tópicos"} ativo={!!escolhidos.length} onPress={() => setFolha(true)} />
+              {geral ? <Chip rotulo={cfg.distribuicao === "fracos" ? "Mais dos fracos" : "Pelo peso"} onPress={() => muda({ distribuicao: cfg.distribuicao === "fracos" ? "peso" : "fracos" })} />
+                : <Chip rotulo={escolhidos.length ? `Tópicos ${escolhidos.length}/${topicosDisp.length}` : "Tópicos"} ativo={!!escolhidos.length} onPress={() => setFolha(true)} />}
               <Chip rotulo={cfg.tempo ? `${cfg.tempo} min` : "Sem relógio"} icone={<Clock size={14} color={c.muted} />} onPress={() => setFolha(true)} />
-              {temSimulado && <Chip rotulo="Simulado" ativo={cfg.estilo} icone={<Check size={14} color={cfg.estilo ? c.accentText : c.muted} />} onPress={() => muda({ estilo: !cfg.estilo })} />}
+              {!geral && temSimulado && <Chip rotulo="Simulado" ativo={cfg.estilo} icone={<Check size={14} color={cfg.estilo ? c.accentText : c.muted} />} onPress={() => muda({ estilo: !cfg.estilo })} />}
             </ScrollView>
             {gerando?.status === "rodando" ? (
               <Pressable onPress={() => parar(gerando.message_id)} accessibilityLabel="Parar"
@@ -753,14 +773,27 @@ export default function Provas({ casca, pendente, onPendenteUsado }: { casca: Ca
         </View>
       </View>
 
-      <Folha aberta={folha} titulo="Nova prova" onFecha={() => setFolha(false)}>
+      <Folha aberta={folha} titulo={geral ? "Simulado geral" : "Nova prova"} onFecha={() => setFolha(false)}>
+        {geral && !!ms.length && (
+          <View style={{ gap: 8 }}>
+            <Text style={s.secao2}>QUANTAS DE CADA MATÉRIA</Text>
+            <Seletor cheio valor={cfg.distribuicao ?? "peso"} onMuda={(distribuicao) => muda({ distribuicao })}
+                     opcoes={[{ id: "peso", rotulo: "Pelo peso" }, { id: "fracos", rotulo: "Mais dos fracos" }]} />
+            {ms.map((m) => (
+              <View key={m.id} style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                <Text style={{ color: c.muted, fontSize: 13, flex: 1 }} numberOfLines={1}>{m.nome}</Text>
+                <Text style={{ color: c.faint, fontFamily: mono, fontSize: 12 }}>≈ {Math.round((pesoDe(m) / somaPeso) * total)}</Text>
+              </View>
+            ))}
+          </View>
+        )}
         <View style={{ gap: 12 }}>
           <Text style={s.secao2}>QUESTÕES</Text>
           <LinhaAjuste rotulo="Múltipla escolha"><Contador valor={cfg.me} min={0} max={40} onMuda={(me) => muda({ me })} /></LinhaAjuste>
           <LinhaAjuste rotulo="Verdadeiro ou falso"><Contador valor={cfg.vf} min={0} max={40} onMuda={(vf) => muda({ vf })} /></LinhaAjuste>
           <LinhaAjuste rotulo="Discursivas" sub="corrigidas pela IA, com rubrica"><Contador valor={cfg.disc} min={0} max={20} onMuda={(disc) => muda({ disc })} /></LinhaAjuste>
           <Text style={[s.faint, { fontSize: 12.5, color: total > 40 ? c.err : c.faint }]}>{plural(total, "questão", "questões")} no total · no máximo 40</Text>
-          {maxFiguras > 0 && (
+          {!geral && maxFiguras > 0 && (
             <LinhaAjuste rotulo="Com figura do PDF" sub={`gráfico, diagrama, tabela · ${figs!.olhadas ? `${figs!.uteis} servem` : `${figs!.detectadas} recortadas`} · precisa de modelo que enxerga`}>
               <Contador valor={comFigura} min={0} max={maxFiguras} onMuda={(figuras) => muda({ figuras })} />
             </LinhaAjuste>
@@ -771,7 +804,7 @@ export default function Provas({ casca, pendente, onPendenteUsado }: { casca: Ca
           <Seletor cheio valor={cfg.dificuldade} opcoes={DIFICULDADES} onMuda={(dificuldade) => muda({ dificuldade })} />
           <Text style={[s.faint, { fontSize: 12.5, lineHeight: 18 }]}>{dificuldade.dica}</Text>
         </View>
-        {temSimulado && (
+        {!geral && temSimulado && (
           <Opcao rotulo="Estilo do simulado" dica="Imita o jeito das provas anexadas (banca, formato, enunciado)." valor={cfg.estilo} onMuda={(estilo) => muda({ estilo })} />
         )}
         <View style={{ gap: 8 }}>
@@ -780,7 +813,7 @@ export default function Provas({ casca, pendente, onPendenteUsado }: { casca: Ca
             <Contador valor={cfg.tempo} min={0} max={600} passo={5} fmt={(n) => (n ? `${n} min` : "sem")} onMuda={(tempo) => muda({ tempo })} />
           </LinhaAjuste>
         </View>
-        <View style={{ gap: 8 }}>
+        {!geral && <View style={{ gap: 8 }}>
           <Text style={s.secao2}>TÓPICOS</Text>
           {topicosDisp.length ? (
             <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
@@ -798,12 +831,12 @@ export default function Provas({ casca, pendente, onPendenteUsado }: { casca: Ca
             </View>
           ) : <Text style={[s.faint, { fontSize: 12.5 }]}>Gere o resumo para escolher por tópico.</Text>}
           {!!topicosDisp.length && <Text style={[s.faint, { fontSize: 12.5 }]}>Nenhum marcado = todos.</Text>}
-        </View>
+        </View>}
         <View style={{ gap: 8 }}>
           <Text style={s.secao2}>PEDIDO</Text>
           <Area valor={instrucoes} onMuda={setInstrucoes} placeholder="Algo específico para esta prova? (opcional — ex.: mais questões de cálculo)" linhas={2} />
         </View>
-        <Botao primario altura={44} rotulo="Gerar prova" desabilitado={!podeGerar} onPress={() => gerar()} />
+        <Botao primario altura={44} rotulo={geral ? "Gerar o simulado geral" : "Gerar prova"} desabilitado={!podeGerar} onPress={() => gerar()} />
       </Folha>
     </View>
   );

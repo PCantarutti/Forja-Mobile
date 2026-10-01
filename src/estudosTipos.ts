@@ -20,7 +20,19 @@ export type EstudosMaterial = { id: number; n: number; nome: string; arquivo: st
   figuras?: number | null; gabarito?: boolean;   // recortadas do PDF (material de OCR não tem)
   materia?: string };                              // id da matéria; "" = Geral (serve para todas)
 /** Matéria do objetivo (a conversa é o objetivo). acerto = % das entregas corrigidas. */
-export type EstudosMateria = { id: string; nome: string; peso?: number; acerto: number | null; entregas: number };
+export type EstudosMateria = { id: string; nome: string; peso?: number; topicos?: string[];   // tópicos: do edital
+  acerto: number | null; entregas: number };
+/** O "Tudo" do objetivo (GET /estudos/<conv>/visao). quadro = a "Revisão rápida" do último resumo da matéria. */
+export type EstudosVisaoMateria = EstudosMateria & {
+  peso: number; resumos: { message_id: number; titulo: string }[]; provas: number; topicos: number; secoes: string[]; fracos: string[];
+  erros: number; cartoes: number; vencem: number; dominados: number; quadro: string;
+};
+export type EstudosVisao = { materias: EstudosVisaoMateria[]; fraca: string | null; acerto: number | null; entregas: number; vencem: number;
+  plano: { data: string } | null };
+/** Ler o edital (execução "edital"): a proposta de matérias; nada muda até aplicar. */
+export type EstudosEditalItem = { nome: string; peso: number; questoes: number | null; topicos: string[]; existe: string | null };
+export type EstudosEdital = { message_id: number; tipo: "edital"; status: EstudosEstado["status"]; etapa: string; progresso: string;
+  aviso: string; cargo: string; pedacos: number; proposta: EstudosEditalItem[]; stats: EstudosEstado["stats"] };
 /** Figura do PDF que uma questão usa (o recorte sai de /api/estudos-figura/<conv>/<material>/<id>). */
 export type EstudosFigura = { material: number; id: string; pagina: number; w?: number; h?: number; descricao?: string };
 export type EstudosTopico = { titulo: string; objetivo: string; pontos: string[]; status: "fila" | "escrevendo" | "pronto" | "erro" };
@@ -58,6 +70,7 @@ export type EstudosQuestao = {
 export type EstudosProvaConfig = {
   me: number; vf: number; disc: number; dificuldade: "facil" | "media" | "dificil" | "mista"; topicos: string[];
   estilo: boolean; tempo: number; instrucoes: string; alternativas: number; figuras?: number;
+  geral?: boolean; distribuicao?: "peso" | "fracos";   // simulado geral do objetivo: todas as matérias, pelo peso
 };
 export type EstudosPlanejada = { id: string; tipo: EstudosTipoQuestao; topico: string; dificuldade: string; motivo: string; status: "fila" | "gerando" | "verificando" | "ok" | "descartada"; figura?: EstudosFigura };
 export type EstudosProva = {
@@ -110,6 +123,7 @@ export type EstudosDuvidaMsg = {
 export type EstudosProjeto = {
   id: number; titulo: string; materiais: EstudosMaterial[];
   materias: EstudosMateria[]; materia: string | null;   // a matéria desta leitura (null = "Tudo")
+  edital?: EstudosEdital | null;                          // a última leitura de edital do objetivo
   resumos: { message_id: number; titulo: string; status: string; criado: string }[];
   resumo: EstudosEstado | null; rodando: number | null; provas: EstudosProvaResumo[]; topicos: string[];
   duvidas: Record<string, number>; revisao: EstudosPainel;
@@ -148,7 +162,8 @@ export type EstudosBusca = {
 /** O retrato de uma execução viva (o que o SSE de /estudos/execucao/{id}/stream manda a cada 0,3 s). */
 export type Exec = EstudosEstado | EstudosProva | EstudosTentativa | EstudosFlashcards | EstudosSimulado | EstudosBusca;
 
-export type Aba = "resumo" | "provas" | "simulados" | "duvidas" | "revisao" | "desempenho";
+export type Aba = "resumo" | "provas" | "simulados" | "duvidas" | "revisao" | "desempenho"
+  | "visao" | "simulado" | "geral";   // estas três só no "Tudo" de um objetivo com matérias
 /** O que vai no corpo de quem pede trabalho ao backend: escritor e, opcional, o modelo de leitura/conferência. */
 export type Modelo = { provider: string; model: string; ex_provider: string; ex_model: string };
 /** Pergunta que chega de fora na aba Dúvidas (o "explicar de outro jeito" de um trecho do resumo). */
