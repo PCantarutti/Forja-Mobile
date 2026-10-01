@@ -1,8 +1,8 @@
 import { type ReactNode, useEffect, useRef, useState } from "react";
-import { ActivityIndicator, Pressable, ScrollView, View } from "react-native";
+import { ActivityIndicator, Image, Modal, Pressable, ScrollView, StatusBar, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Text, TextInput } from "./Texto";
-import { api, lerAjustes, salvaAjustes } from "./api";
+import { api, base, comToken, lerAjustes, salvaAjustes } from "./api";
 import { pergunta } from "./Dialogo";
 import { ConversaDuvida } from "./EstudosDuvidas";
 import { TextoRico } from "./Formula";
@@ -11,7 +11,7 @@ import { BotaoEnviar } from "./Imagens";
 import { useTeclado } from "./teclado";
 import { c, mono, s } from "./tema";
 import { Area, Botao, BotaoIcone, Chip, Contador, Folha, LinhaAjuste, Opcao, Pulsa, Recolhivel, Seletor, Selo, toast } from "./ui";
-import { type Casca, type EstudosPlanejada, type EstudosProva, type EstudosProvaConfig, type EstudosProvaResumo, type EstudosQuestao,
+import { type Casca, type EstudosPlanejada, type EstudosProva, type EstudosProvaConfig, type EstudosProvaResumo, type EstudosQuestao, type EstudosFigura,
          type EstudosTentativa, type ProvaPendente, DIFICULDADE, LETRAS, PEDIDO_CLAUDE, TIPO_CURTO, nota, numeros, quando, relogio } from "./estudosTipos";
 
 // Aba Provas da tela Estudos (EstudosProva.tsx do desktop): a lista de provas com as entregas, a folha "Nova prova",
@@ -22,7 +22,7 @@ type Resposta = number | boolean | string;
 type Conferida = Pick<EstudosQuestao, "correta" | "explicacao" | "por_alternativa" | "resposta_modelo" | "rubrica" | "pagina"> & { certa: boolean | null };
 type Rascunho = { respostas: Record<string, Resposta>; marcadas: string[]; atual: number; inicio: number; conferidas: Record<string, Conferida> };
 type Vista = { tipo: "lista" } | { tipo: "fazer"; prova: EstudosProva; treino: boolean } | { tipo: "resultado"; t: EstudosTentativa };
-type Cfg = Pick<EstudosProvaConfig, "me" | "vf" | "disc" | "dificuldade" | "estilo" | "tempo" | "topicos">;
+type Cfg = Pick<EstudosProvaConfig, "me" | "vf" | "disc" | "dificuldade" | "estilo" | "tempo" | "topicos"> & { figuras?: number };
 type Estado = "neutra" | "minha" | "certa" | "errada";
 
 const PADRAO: Cfg = { me: 8, vf: 2, disc: 0, dificuldade: "mista", estilo: true, tempo: 0, topicos: [] };
@@ -61,6 +61,34 @@ function AguardandoClaude({ texto, onCancelar }: { texto: string; onCancelar: ()
   );
 }
 
+/** A figura do PDF que a questão usa: fundo branco (é recorte de página impressa; no tema escuro o traço preto
+ *  sumia), proporção já reservada pelo w/h, toque abre em tela cheia. Material apagado: some sem quebrar. */
+export function FiguraQuestao({ conv, f }: { conv: number | null; f?: EstudosFigura }) {
+  const [aberta, setAberta] = useState(false);
+  const [falhou, setFalhou] = useState(false);
+  if (!f || conv == null || falhou) return null;
+  const uri = comToken(`${base()}/api/estudos-figura/${conv}/${f.material}/${f.id}`);
+  const proporcao = f.w && f.h ? f.w / f.h : 1.4;
+  return (
+    <>
+      <Pressable onPress={() => setAberta(true)} accessibilityRole="imagebutton" accessibilityLabel={f.descricao || "Figura da questão; toque para ampliar"}
+                 style={{ backgroundColor: "#fff", borderRadius: 12, padding: 8, borderWidth: 1, borderColor: c.line }}>
+        <Image source={{ uri }} onError={() => setFalhou(true)} resizeMode="contain"
+               style={{ width: "100%", aspectRatio: proporcao, maxHeight: 420 }} />
+      </Pressable>
+      <Modal visible={aberta} transparent animationType="fade" statusBarTranslucent onRequestClose={() => setAberta(false)}>
+        <StatusBar barStyle="light-content" />
+        <Pressable onPress={() => setAberta(false)} style={{ flex: 1, backgroundColor: "rgba(0,0,0,.94)", justifyContent: "center", padding: 10 }}>
+          <View style={{ backgroundColor: "#fff", borderRadius: 10, padding: 6 }}>
+            <Image source={{ uri }} resizeMode="contain" style={{ width: "100%", aspectRatio: proporcao }} />
+          </View>
+          <Text style={{ color: "#bbb", textAlign: "center", marginTop: 14, fontSize: 13 }}>Toque para fechar · gire o celular para ver maior</Text>
+        </Pressable>
+      </Modal>
+    </>
+  );
+}
+
 /** A geração em andamento: um quadradinho por questão planejada (fila, escrevendo, pronta, descartada). */
 function Gerando({ p }: { p: EstudosProva }) {
   const COR: Record<EstudosPlanejada["status"], string> = { fila: c.line, gerando: c.info, verificando: c.info, ok: c.ok, descartada: c.err };
@@ -69,7 +97,8 @@ function Gerando({ p }: { p: EstudosProva }) {
     <View style={cartao()}>
       <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
         <Pulsa cor={c.info} />
-        <Text style={{ color: c.fg, fontSize: 14.5, flex: 1 }}>{p.etapa === "conferindo" ? "Conferindo o gabarito" : "Escrevendo as questões"}</Text>
+        <Text style={{ color: c.fg, fontSize: 14.5, flex: 1 }}>{p.etapa === "conferindo" ? "Conferindo o gabarito"
+          : p.etapa === "figuras" ? `Olhando as figuras do PDF${p.figuras_olhadas ? ` · ${p.figuras_olhadas}` : ""}` : "Escrevendo as questões"}</Text>
         {!!p.planejadas.length && <Text style={{ color: c.faint, fontFamily: mono, fontSize: 12 }}>{prontas} de {p.planejadas.length}</Text>}
       </View>
       {!!p.planejadas.length && (
@@ -245,6 +274,7 @@ function FazerProva({ casca, prova, treino, entregando, onEntregar, onSair }: {
         <View style={[cartao(), { gap: 10 }]}>
           <Text style={{ color: c.faint, fontSize: 12.5, lineHeight: 18 }}>{meta}</Text>
           <TextoRico texto={q.enunciado} fundo={c.surface} />
+          <FiguraQuestao conv={casca.conv} f={q.figura} />
 
           {q.tipo === "me" && (
             <View style={{ gap: 8 }}>
@@ -338,6 +368,7 @@ function QuestaoCorrigida({ casca, q, n, t }: { casca: Casca; q: EstudosQuestao;
         <Text style={{ color: c.faint, fontFamily: mono, fontSize: 12 }}>{nota(cq?.pontos ?? 0)}/{nota(q.pontos)}</Text>
       </View>
       <TextoRico texto={q.enunciado} fundo={c.surface} />
+      <FiguraQuestao conv={casca.conv} f={q.figura} />
 
       {q.tipo === "me" && (
         <View style={{ gap: 8 }}>
@@ -500,6 +531,10 @@ export default function Provas({ casca, pendente, onPendenteUsado }: { casca: Ca
   const temSimulado = !!p && (p.materiais.some((m) => m.uso === "prova") || !!p.resumo?.perfil?.banca);
   const total = cfg.me + cfg.vf + cfg.disc;
   const podeGerar = total > 0 && total <= 40 && !ocupado;
+  const figs = p?.figuras;
+  // já olhadas todas: o teto é o que serve; antes disso, o que foi recortado
+  const maxFiguras = Math.min(total, figs ? (figs.olhadas >= figs.detectadas ? figs.uteis : figs.detectadas) : 0);
+  const comFigura = Math.min(cfg.figuras ?? 0, maxFiguras);
 
   async function gerar(extra?: ProvaPendente) {
     if (ocupado) return toast("Espere terminar o que está rodando.");
@@ -508,7 +543,7 @@ export default function Provas({ casca, pendente, onPendenteUsado }: { casca: Ca
     if (!casca.modelo) return toast("Escolha um modelo em Modelos (ou no chat) antes.");
     setFolha(false);
     setPronta(null);
-    const config = { ...cfg, topicos: extra?.topicos ?? escolhidos, instrucoes: (extra?.instrucoes ?? instrucoes).trim() };
+    const config = { ...cfg, figuras: comFigura, topicos: extra?.topicos ?? escolhidos, instrucoes: (extra?.instrucoes ?? instrucoes).trim() };
     try {
       const id = await casca.garante();
       const u: EstudosProva | null = await casca.segue(`/estudos/${id}/prova`, { config, ...casca.modelo });
@@ -531,8 +566,8 @@ export default function Provas({ casca, pendente, onPendenteUsado }: { casca: Ca
       if (!pr.questoes.length) return casca.erro("Esta prova não tem questões.");
       setPronta(null);
       // refazer uma prova já entregue: a tela mostra de novo sem gabarito (as respostas começam do zero)
-      setVista({ tipo: "fazer", treino, prova: { ...pr, questoes: pr.questoes.map(({ id, tipo, enunciado, pontos, topico, dificuldade, alternativas }) =>
-        ({ id, tipo, enunciado, pontos, topico, dificuldade, alternativas })) } });
+      setVista({ tipo: "fazer", treino, prova: { ...pr, questoes: pr.questoes.map(({ id, tipo, enunciado, pontos, topico, dificuldade, alternativas, figura }) =>
+        ({ id, tipo, enunciado, pontos, topico, dificuldade, alternativas, figura })) } });
     } catch (e: any) { casca.erro(e.message); } finally { setAbrindo(null); }
   }
 
@@ -702,6 +737,11 @@ export default function Provas({ casca, pendente, onPendenteUsado }: { casca: Ca
           <LinhaAjuste rotulo="Verdadeiro ou falso"><Contador valor={cfg.vf} min={0} max={40} onMuda={(vf) => muda({ vf })} /></LinhaAjuste>
           <LinhaAjuste rotulo="Discursivas" sub="corrigidas pela IA, com rubrica"><Contador valor={cfg.disc} min={0} max={20} onMuda={(disc) => muda({ disc })} /></LinhaAjuste>
           <Text style={[s.faint, { fontSize: 12.5, color: total > 40 ? c.err : c.faint }]}>{plural(total, "questão", "questões")} no total · no máximo 40</Text>
+          {maxFiguras > 0 && (
+            <LinhaAjuste rotulo="Com figura do PDF" sub={`gráfico, diagrama, tabela · ${figs!.olhadas ? `${figs!.uteis} servem` : `${figs!.detectadas} recortadas`} · precisa de modelo que enxerga`}>
+              <Contador valor={comFigura} min={0} max={maxFiguras} onMuda={(figuras) => muda({ figuras })} />
+            </LinhaAjuste>
+          )}
         </View>
         <View style={{ gap: 8 }}>
           <Text style={s.secao2}>DIFICULDADE</Text>

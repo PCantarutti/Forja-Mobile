@@ -16,7 +16,10 @@ export type EstudosPreferencias = {
   observacoes: string;
 };
 
-export type EstudosMaterial = { id: number; n: number; nome: string; arquivo: string; chars: number; paginas: number; ocr: boolean; uso: "conteudo" | "prova" };
+export type EstudosMaterial = { id: number; n: number; nome: string; arquivo: string; chars: number; paginas: number; ocr: boolean; uso: "conteudo" | "prova";
+  figuras?: number | null };   // recortadas do PDF (material de OCR não tem)
+/** Figura do PDF que uma questão usa (o recorte sai de /api/estudos-figura/<conv>/<material>/<id>). */
+export type EstudosFigura = { material: number; id: string; pagina: number; w?: number; h?: number; descricao?: string };
 export type EstudosTopico = { titulo: string; objetivo: string; pontos: string[]; status: "fila" | "escrevendo" | "pronto" | "erro" };
 export type Status = "rodando" | "aguardando" | "pronto" | "erro" | "cancelado";
 
@@ -47,16 +50,17 @@ export type EstudosQuestao = {
   alternativas?: string[];
   // só depois da primeira entrega (a prova sai sem gabarito até lá)
   correta?: number | boolean; explicacao?: string; por_alternativa?: string[]; resposta_modelo?: string;
-  rubrica?: { criterio: string; pontos: number }[]; pagina?: string; verificada?: boolean;
+  rubrica?: { criterio: string; pontos: number }[]; pagina?: string; verificada?: boolean; figura?: EstudosFigura;
 };
 export type EstudosProvaConfig = {
   me: number; vf: number; disc: number; dificuldade: "facil" | "media" | "dificil" | "mista"; topicos: string[];
-  estilo: boolean; tempo: number; instrucoes: string; alternativas: number;
+  estilo: boolean; tempo: number; instrucoes: string; alternativas: number; figuras?: number;
 };
-export type EstudosPlanejada = { id: string; tipo: EstudosTipoQuestao; topico: string; dificuldade: string; motivo: string; status: "fila" | "gerando" | "verificando" | "ok" | "descartada" };
+export type EstudosPlanejada = { id: string; tipo: EstudosTipoQuestao; topico: string; dificuldade: string; motivo: string; status: "fila" | "gerando" | "verificando" | "ok" | "descartada"; figura?: EstudosFigura };
 export type EstudosProva = {
   message_id: number; tipo: "prova"; titulo: string; config: EstudosProvaConfig; motor: "forja" | "claude"; status: Status; etapa: string;
   aviso: string; planejadas: EstudosPlanejada[]; questoes: EstudosQuestao[]; revelada: boolean; stats: Stats;
+  figuras_olhadas?: string;   // "12 de 80", na etapa "figuras"
 };
 export type EstudosCorrecao = {
   resposta: number | boolean | string | null; certa: boolean | null; pontos: number; max: number; feedback: string; pendente?: boolean;
@@ -104,6 +108,7 @@ export type EstudosProjeto = {
   resumos: { message_id: number; titulo: string; status: string; criado: string }[];
   resumo: EstudosEstado | null; rodando: number | null; provas: EstudosProvaResumo[]; topicos: string[];
   duvidas: Record<string, number>; revisao: EstudosPainel;
+  figuras?: { detectadas: number; uteis: number; olhadas: number };
 };
 
 /** O retrato de uma execução viva (o que o SSE de /estudos/execucao/{id}/stream manda a cada 0,3 s). */

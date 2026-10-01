@@ -343,7 +343,7 @@ export default function Estudos({ conv, onCriada, onTurno }: { conv: Conv | null
               <Text style={{ color: c.fg, fontSize: 14.5, flex: 1 }} numberOfLines={1}>{m.nome}</Text>
               <Pressable hitSlop={8} onPress={() => remover(m.id)}><X size={16} color={c.faint} /></Pressable>
             </View>
-            <Text style={{ color: c.faint, fontFamily: mono, fontSize: 11.5 }}>{[m.paginas ? `${m.paginas} págs` : "", `${Math.round(m.chars / 1000)} mil caracteres`, m.ocr ? "OCR" : ""].filter(Boolean).join(" · ")}</Text>
+            <Text style={{ color: c.faint, fontFamily: mono, fontSize: 11.5 }}>{[m.paginas ? `${m.paginas} págs` : "", `${Math.round(m.chars / 1000)} mil caracteres`, m.ocr ? "OCR" : "", m.figuras ? `${m.figuras} figura${m.figuras === 1 ? "" : "s"}` : ""].filter(Boolean).join(" · ")}</Text>
             <Seletor cheio altura={32} valor={m.uso} opcoes={[{ id: "conteudo", rotulo: "Conteúdo" }, { id: "prova", rotulo: "Prova / simulado" }]} onMuda={(v) => usoDe(m.id, v)} />
           </View>
         ))}

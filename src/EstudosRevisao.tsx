@@ -8,6 +8,7 @@ import { api, lerAjustes, salvaAjustes, textoComToken } from "./api";
 import { compartilhaTexto } from "./Comparar";
 import { pergunta } from "./Dialogo";
 import { TextoRico, temFormula } from "./Formula";
+import { FiguraQuestao } from "./EstudosProva";
 import { ArrowRight, Check, Copy, Download, Refresh, Trash, X } from "./icones";
 import { c, mono, s } from "./tema";
 import { Botao, Contador, Pulsa, Seletor, corta, toast } from "./ui";
@@ -136,6 +137,7 @@ function Sessao({ casca, conv, itens, onFim }: { casca: Casca; conv: number; ite
           ) : (
             <>
               <TextoRico texto={q!.enunciado} fundo={c.surface} />
+              <FiguraQuestao conv={conv} f={q!.figura} />
               {q!.tipo === "me" && (
                 <View style={{ gap: 6 }}>
                   {q!.alternativas?.map((a, k) => {
