@@ -12,6 +12,7 @@ import { useTeclado } from "./teclado";
 import { c, mono, s } from "./tema";
 import { Area, Botao, Chip, Folha, Lista, Pulsa, Seletor, toast } from "./ui";
 import { DocumentoRico, type DocumentoRef, sumario } from "./Formula";
+import EstudosMapaMental from "./EstudosMapaMental";
 import { type Aba, type Casca, type EstudosEstado, type EstudosPreferencias, type EstudosProjeto, type Exec, type Modelo,
          type Pendente, type ProvaPendente, PEDIDO_CLAUDE, numeros } from "./estudosTipos";
 import Provas from "./EstudosProva";
@@ -55,6 +56,7 @@ export default function Estudos({ conv, onCriada, onTurno }: { conv: Conv | null
   const [erro, setErro] = useState("");
   const abort = useRef<AbortController | null>(null);
   const doc = useRef<DocumentoRef>(null);
+  const [mapa, setMapa] = useState(false);   // o resumo como mapa mental
   const inset = useSafeAreaInsets();
   const teclado = useTeclado();
   const muda = (x: Partial<Ajustes>) => setAj((a) => { const n = { ...a, ...x }; salvaAjustes("estudos", n); return n; });
@@ -284,11 +286,24 @@ export default function Estudos({ conv, onCriada, onTurno }: { conv: Conv | null
               </View>
             )}
 
+            {!!texto && secoes.length > 1 && (
+              <View style={{ paddingHorizontal: 12, paddingTop: 6 }}>
+                <Seletor valor={mapa ? "mapa" : "texto"} onMuda={(v) => setMapa(v === "mapa")}
+                         opcoes={[{ id: "texto", rotulo: "Texto" }, { id: "mapa", rotulo: "Mapa mental" }]} />
+              </View>
+            )}
+            {!!texto && mapa && secoes.length > 1 && (
+              <EstudosMapaMental md={texto} tema={resumo?.tema ?? ""}
+                                 onAbrir={(i) => { setMapa(false); setTimeout(() => doc.current?.irTitulo(i), 120); }} />
+            )}
             {texto ? (
-              <DocumentoRico ref={doc} markdown={texto} onExplicar={(trecho) => {
-                setPendente({ pergunta: "Não entendi este trecho. Explique de outro jeito, mais simples, com um exemplo.", trecho });
-                setAba("duvidas");
-              }} />
+              // o resumo fica montado debaixo do mapa: voltar do mapa já cai na seção, sem recarregar a página
+              <View style={{ flex: 1, display: mapa && secoes.length > 1 ? "none" : "flex" }}>
+                <DocumentoRico ref={doc} markdown={texto} onExplicar={(trecho) => {
+                  setPendente({ pergunta: "Não entendi este trecho. Explique de outro jeito, mais simples, com um exemplo.", trecho });
+                  setAba("duvidas");
+                }} />
+              </View>
             ) : (
               <View style={{ flex: 1, alignItems: "center", justifyContent: "center", padding: 24, gap: 10 }}>
                 {rodandoResumo ? <ActivityIndicator color={c.muted} /> : (

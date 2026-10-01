@@ -51,6 +51,7 @@ export const Refresh = (p: P) => <Icone {...p}><Path d="M21 12a9 9 0 1 1-2.6-6.4
 export const Shield = (p: P) => <Icone {...p}><Path d="M12 3l7 3v6c0 4.4-3 7.6-7 9-4-1.4-7-4.6-7-9V6z" /><Path d="m9 12 2 2 4-4" /></Icone>;
 export const X = (p: P) => <Icone {...p}><Path d="M6 6l12 12M18 6L6 18" /></Icone>;
 export const Plus = (p: P) => <Icone {...p}><Path d="M12 5v14M5 12h14" /></Icone>;
+export const Minus = (p: P) => <Icone {...p}><Path d="M5 12h14" /></Icone>;
 export const GitBranch = (p: P) => <Icone {...p}><Circle cx={6} cy={5} r={2.5} /><Circle cx={6} cy={19} r={2.5} /><Circle cx={18} cy={8} r={2.5} /><Path d="M6 7.5v9M18 10.5c0 3-3 4-6 4s-6 1-6 3" /></Icone>;
 export const Terminal = (p: P) => <Icone {...p}><Path d="m5 7 5 5-5 5" /><Path d="M12 17h7" /></Icone>;
 export const Pin = (p: P) => <Icone {...p}><Path d="M9 4h6l-1 6 3 3v1H7v-1l3-3z" /><Path d="M12 14v6" /></Icone>;

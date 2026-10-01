@@ -73,7 +73,8 @@ const SCRIPT = `<script>(function(){
     // no touchstart, antes de o toque desfazer a seleção (no click ela já se foi e o botão sumiu)
     b.addEventListener("touchstart",function(e){e.preventDefault();var t=String(getSelection()).trim();getSelection().removeAllRanges();b.style.display="none";
       rn.postMessage(JSON.stringify({tipo:"explicar",trecho:t.slice(0,1500)}))},{passive:false});}
-  window.__forja={ir:function(i){var h=document.querySelectorAll("h2")[i];h&&h.scrollIntoView({behavior:"smooth",block:"start"})}};
+  window.__forja={ir:function(i,sel){var h=document.querySelectorAll(sel||"h2")[i];if(!h)return;h.scrollIntoView({behavior:"smooth",block:"start"});
+    h.animate&&h.animate([{background:"rgba(127,127,127,.25)"},{background:"transparent"}],{duration:1800,easing:"ease-out"})}};
 })();</script>`;
 const CSP = `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data: blob: https:; font-src data:">`;
 
@@ -103,14 +104,18 @@ function FormulaWeb({ texto, fundo, tamanho }: { texto: string; fundo: string; t
   );
 }
 
-export type DocumentoRef = { irPara: (i: number) => void };
+/** irPara: a i-ésima seção (##); irTitulo: o i-ésimo título entre ##, ### e #### (a âncora do mapa mental). */
+export type DocumentoRef = { irPara: (i: number) => void; irTitulo: (i: number) => void };
 
 /** O resumo inteiro: uma WebView que rola por dentro (um resumo de 15 páginas numa WebView dentro do ScrollView
  *  passava do limite de altura do Android). Marcar um trecho mostra "Explicar de outro jeito". */
 export const DocumentoRico = forwardRef<DocumentoRef, { markdown: string; onExplicar?: (trecho: string) => void }>(function DocumentoRico({ markdown, onExplicar }, ref) {
   const web = useRef<WebView>(null);
   const html = useMemo(() => pagina(paraHtml(markdown), c.bg, 15.5, !!onExplicar, 16), [markdown, onExplicar]);
-  useImperativeHandle(ref, () => ({ irPara: (i) => web.current?.injectJavaScript(`window.__forja && __forja.ir(${i}); true;`) }), []);
+  useImperativeHandle(ref, () => ({
+    irPara: (i) => web.current?.injectJavaScript(`window.__forja && __forja.ir(${i}); true;`),
+    irTitulo: (i) => web.current?.injectJavaScript(`window.__forja && __forja.ir(${i}, "h2, h3, h4"); true;`),
+  }), []);
   return (
     <WebView ref={web} originWhitelist={["*"]} source={{ html }} style={{ flex: 1, backgroundColor: c.bg }} overScrollMode="never"
              onMessage={(e) => { const m: Msg = JSON.parse(e.nativeEvent.data || "{}"); if (m.tipo === "explicar" && m.trecho) onExplicar?.(m.trecho); }} />
