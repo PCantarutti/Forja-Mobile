@@ -32,7 +32,8 @@ export type EstudosVisao = { materias: EstudosVisaoMateria[]; fraca: string | nu
 /** Ler o edital (execução "edital"): a proposta de matérias; nada muda até aplicar. */
 export type EstudosEditalItem = { nome: string; peso: number; questoes: number | null; topicos: string[]; existe: string | null };
 export type EstudosEdital = { message_id: number; tipo: "edital"; status: EstudosEstado["status"]; etapa: string; progresso: string;
-  aviso: string; cargo: string; pedacos: number; proposta: EstudosEditalItem[]; stats: EstudosEstado["stats"] };
+  aviso: string; cargo: string; pedacos: number; proposta: EstudosEditalItem[]; stats: EstudosEstado["stats"];
+  link?: string; anexos?: { url: string; nome: string; chars?: number; erro?: string }[]; data_prova?: string };
 /** Figura do PDF que uma questão usa (o recorte sai de /api/estudos-figura/<conv>/<material>/<id>). */
 export type EstudosFigura = { material: number; id: string; pagina: number; w?: number; h?: number; descricao?: string };
 export type EstudosTopico = { titulo: string; objetivo: string; pontos: string[]; status: "fila" | "escrevendo" | "pronto" | "erro" };

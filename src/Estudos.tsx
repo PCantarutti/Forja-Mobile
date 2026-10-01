@@ -265,6 +265,14 @@ export default function Estudos({ conv, onCriada, onTurno }: { conv: Conv | null
   const tudo = materia === null && !!p?.materias?.length;
   const doEdital = p?.materias?.find((x) => x.id === materia)?.topicos ?? [];
   const abrirMateria = (m: string) => { escolheMateria(m); setAba("resumo"); };
+  /** O "ler" do cronograma: a matéria do tópico ("Português · Crase"), com o tópico como tema do resumo. */
+  async function lerDoCronograma(topico: string) {
+    const [nome, ...resto] = topico.split(" · ");
+    const m = tudo && resto.length ? p?.materias?.find((x) => x.nome === nome) : null;
+    if (m) await escolheMateria(m.id);
+    setAba("resumo");
+    setTema(m ? resto.join(" · ") : topico);
+  }
   useEffect(() => {   // as abas do Tudo não existem numa matéria, e vice-versa
     const soTudo: Aba[] = ["visao", "simulado", "geral"];
     if (tudo && !["revisao", "desempenho", ...soTudo].includes(aba)) setAba("visao");
@@ -320,7 +328,8 @@ export default function Estudos({ conv, onCriada, onTurno }: { conv: Conv | null
        : aba === "duvidas" ? <Duvidas key={materia ?? ""} casca={casca} pendente={pendente} onPendenteUsado={() => setPendente(null)} />
        : aba === "revisao" ? <Revisao key={materia ?? ""} casca={casca} />
        : aba === "simulados" ? <Simulados key={materia ?? ""} casca={casca} onProvas={() => setAba("provas")} />
-       : aba === "desempenho" ? <Desempenho key={materia ?? ""} casca={casca} onProva={(x) => { setProvaPendente(x); setAba(tudo ? "simulado" : "provas"); }} />
+       : aba === "desempenho" ? <Desempenho key={materia ?? ""} casca={casca} onProva={(x) => { setProvaPendente(x); setAba(tudo ? "simulado" : "provas"); }}
+                                            onLer={lerDoCronograma} />
        : (
         <>
           <View style={{ flex: 1 }}>
@@ -458,7 +467,7 @@ export default function Estudos({ conv, onCriada, onTurno }: { conv: Conv | null
         <Text style={[s.faint, { fontSize: 12.5 }]}>Toque longo numa matéria para renomear, mudar o peso ou tirar.</Text>
       </Folha>
       <Folha aberta={doObjetivo === "edital"} titulo="Ler o edital" altura="90%" onFecha={() => setDoObjetivo(null)}>
-        <LerEdital casca={casca} onFeito={() => { setDoObjetivo(null); escolheMateria(null); carrega(); }} />
+        <LerEdital casca={casca} onFeito={(comPlano) => { setDoObjetivo(null); escolheMateria(null); if (comPlano) setAba("desempenho"); carrega(); }} />
       </Folha>
       <Folha aberta={doObjetivo === "trazer"} titulo="Trazer um estudo" onFecha={() => setDoObjetivo(null)}>
         <TrazerEstudo casca={casca} onFeito={() => { setDoObjetivo(null); carrega(); onTurno(); }} />

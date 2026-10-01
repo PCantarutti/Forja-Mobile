@@ -80,6 +80,9 @@ function Grafico({ entregas, largura }: { entregas: EstudosDesempenho["entregas"
 /** Acerto por tópico: a barra soma todas as entregas; o traço vertical é a última. Nome em âmbar = ponto fraco. */
 function Topicos({ d, onProva }: { d: EstudosDesempenho; onProva: (p: ProvaPendente) => void }) {
   const testados = d.topicos.filter((t) => t.pct !== null);
+  // com o edital, são dezenas de tópicos ainda sem questão: viram uma linha (e abrem num toque)
+  const [todos, setTodos] = useState(false);
+  const semQuestao = d.topicos.length - testados.length;
   return (
     <Cartao gap={10}>
       <View style={{ gap: 2 }}>
@@ -87,7 +90,7 @@ function Topicos({ d, onProva }: { d: EstudosDesempenho; onProva: (p: ProvaPende
         <Text style={[s.faint, { fontSize: 12.5, lineHeight: 18 }]}>somando todas as entregas; o traço é a última</Text>
       </View>
       <View style={{ gap: 10 }}>
-        {d.topicos.map((t) => {
+        {(todos ? d.topicos : testados).map((t) => {
           const fraco = d.fracos.includes(t.topico);
           return (
             <View key={t.topico} style={{ gap: 5 }}>
@@ -108,7 +111,11 @@ function Topicos({ d, onProva }: { d: EstudosDesempenho; onProva: (p: ProvaPende
           );
         })}
       </View>
-      {!testados.length && <Text style={[s.faint, { lineHeight: 19 }]}>Nenhum tópico com questão feita ainda.</Text>}
+      {!!semQuestao && (
+        <Text style={[s.faint, { lineHeight: 19 }]} onPress={() => setTodos((v) => !v)}>
+          {todos ? "Esconder os tópicos sem questão" : `${testados.length ? "+ " : ""}${semQuestao} tópico${semQuestao === 1 ? "" : "s"} ainda sem questão · ver`}
+        </Text>
+      )}
       {!!d.fracos.length && (
         <Botao primario altura={40} rotulo="Prova dos pontos fracos" estilo={{ marginTop: 2 }}
                onPress={() => onProva({ topicos: d.fracos, instrucoes: `Prova dos pontos fracos: foque no que o aluno mais erra em ${d.fracos.join(", ")}.` })} />
@@ -121,7 +128,7 @@ function Topicos({ d, onProva }: { d: EstudosDesempenho; onProva: (p: ProvaPende
 function Cronograma({ conv, plano, lembrete, onMarca, onMudou, onProva, onIr, onErro }: {
   conv: number; plano: EstudosPlano | null; lembrete: boolean;
   onMarca: (t: EstudosTarefa, feito: boolean) => void;   // marca no estado local na hora (o POST confirma)
-  onMudou: () => Promise<void>; onProva: (p: ProvaPendente) => void; onIr: (aba: "resumo" | "revisao") => void; onErro: (e: string) => void;
+  onMudou: () => Promise<void>; onProva: (p: ProvaPendente) => void; onIr: (aba: "resumo" | "revisao", topico?: string) => void; onErro: (e: string) => void;
 }) {
   const hoje = isoLocal(new Date());
   // O formulário pede dias (não data): no celular um stepper vale mais que um calendário. Refazer parte do plano atual.
@@ -172,7 +179,7 @@ function Cronograma({ conv, plano, lembrete, onMarca, onMudou, onProva, onIr, on
   const acaoDe = (t: EstudosTarefa) =>
     t.tipo === "simulado" ? { rotulo: "gerar", on: () => onProva({ topicos: [], instrucoes: "Simulado: todos os tópicos, no estilo da prova." }) }
     : t.tipo === "revisar" ? { rotulo: "revisar", on: () => onIr("revisao") }
-    : { rotulo: "ler", on: () => onIr("resumo") };
+    : { rotulo: "ler", on: () => onIr("resumo", t.topico || undefined) };
 
   return (
     <Cartao gap={10}>
@@ -271,7 +278,8 @@ function Cronograma({ conv, plano, lembrete, onMarca, onMudou, onProva, onIr, on
 }
 
 /** Aba Desempenho: notas, acerto por tópico, pontos fracos, revisão e cronograma. */
-export default function Desempenho({ casca, onProva }: { casca: Casca; onProva: (p: ProvaPendente) => void }) {
+export default function Desempenho({ casca, onProva, onLer }: { casca: Casca; onProva: (p: ProvaPendente) => void;
+                                       onLer?: (topico: string) => void }) {   // o "ler" do cronograma
   const [d, setD] = useState<EstudosDesempenho | null>(null);
   const [semEstudo, setSemEstudo] = useState(false);   // 404: a conversa ainda não tem estudo
   const [falhou, setFalhou] = useState(false);
@@ -359,7 +367,7 @@ export default function Desempenho({ casca, onProva }: { casca: Casca; onProva: 
           </Cartao>
 
           <Cronograma key={d.plano?.criado ?? "novo"} conv={casca.conv} plano={d.plano} lembrete={d.lembrete} onMarca={marcaLocal} onMudou={mudou}
-                      onProva={onProva} onIr={casca.setAba} onErro={casca.erro} />
+                      onProva={onProva} onIr={(a, topico) => (a === "resumo" && topico && onLer ? onLer(topico) : casca.setAba(a))} onErro={casca.erro} />
         </>
       )}
     </ScrollView>

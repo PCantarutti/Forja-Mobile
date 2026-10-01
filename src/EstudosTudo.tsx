@@ -7,7 +7,7 @@ import { pergunta } from "./Dialogo";
 import { TextoRico } from "./Formula";
 import { ArrowRight, Check, Paperclip, Trash } from "./icones";
 import { c, mono, s } from "./tema";
-import { Area, Botao, Contador, Folha, LinhaAjuste, toast } from "./ui";
+import { Area, Botao, Contador, Folha, LinhaAjuste, Opcao, toast } from "./ui";
 import { type Casca, type EstudosEdital, type EstudosEditalItem, type EstudosMateria, type EstudosVisao, numeros } from "./estudosTipos";
 
 const cartao = () => ({ backgroundColor: c.surface, borderRadius: 14, borderWidth: 1, borderColor: c.line, padding: 12, gap: 8 });
@@ -117,8 +117,11 @@ export function ResumoGeral({ casca, onAbrir }: { casca: Casca; onAbrir: (m: str
 }
 
 /** Ler o edital: colar ou mandar o arquivo; a IA propõe matérias, peso e tópicos; você confere e aplica. */
-export function LerEdital({ casca, onFeito }: { casca: Casca; onFeito: () => void }) {
+export function LerEdital({ casca, onFeito }: { casca: Casca; onFeito: (comPlano: boolean) => void }) {
   const [texto, setTexto] = useState("");
+  const [link, setLink] = useState("");
+  // o plano de estudos sai junto: até a data da prova (DD/MM/AAAA), pelos tópicos do edital e o peso de cada matéria
+  const [plano, setPlano] = useState({ ligado: true, data: "", minutos: 60 });
   const [cargo, setCargo] = useState("");
   const [enviando, setEnviando] = useState(false);
   const [ex, setEx] = useState<EstudosEdital | null>(casca.p?.edital ?? null);
@@ -126,7 +129,12 @@ export function LerEdital({ casca, onFeito }: { casca: Casca; onFeito: () => voi
   const corte = useRef<AbortController | null>(null);
   const lendo = ex?.status === "rodando";
   useEffect(() => () => corte.current?.abort(), []);
-  useEffect(() => { if (ex && !lendo) setItens(ex.proposta.map((x) => ({ ...x, marcada: true }))); }, [ex?.message_id, ex?.status]);   // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (ex && !lendo) setItens(ex.proposta.map((x) => ({ ...x, marcada: true })));
+    if (ex?.data_prova) setPlano((p) => ({ ...p, data: p.data || ex.data_prova!.split("-").reverse().join("/") }));
+  }, [ex?.message_id, ex?.status]);   // eslint-disable-line react-hooks/exhaustive-deps
+  const iso = (d: string) => { const m = d.trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/); return m ? `${m[3]}-${m[2].padStart(2, "0")}-${m[1].padStart(2, "0")}` : ""; };
+  const porLink = /^https?:\/\//i.test(link.trim());
 
   async function arquivo() {
     const r = await DocumentPicker.getDocumentAsync({ copyToCacheDirectory: true }).catch(() => null);
@@ -139,23 +147,25 @@ export function LerEdital({ casca, onFeito }: { casca: Casca; onFeito: () => voi
   }
 
   async function ler() {
-    if (texto.trim().length < 200) return toast("Cole o edital (ou o quadro de provas e o conteúdo programático).");
+    if (!porLink && texto.trim().length < 200) return toast("Cole o link do edital, o texto dele ou mande o arquivo.");
     if (!casca.modelo) return toast("Escolha um modelo em Modelos (ou no chat) antes.");
     corte.current?.abort();
     const ac = (corte.current = new AbortController());
     try {
       await streamSSE(`/estudos/${casca.conv}/edital`, (ev) => { if (ev.erro) casca.erro(ev.erro); else setEx(ev); }, ac.signal,
-                      { texto, cargo, ...casca.modelo });
+                      { texto: porLink ? "" : texto, link: porLink ? link.trim() : "", cargo, ...casca.modelo });
     } catch (e: any) { if (!ac.signal.aborted && !cancelado(e)) casca.erro(e.message); }
   }
 
   async function aplicar() {
     const marcadas = itens.filter((x) => x.marcada && x.nome.trim());
     if (!marcadas.length) return toast("Marque pelo menos uma matéria.");
+    if (plano.ligado && !iso(plano.data)) return toast("Data da prova em DD/MM/AAAA (ou desligue o plano).");
+    const cronograma = plano.ligado ? { data: iso(plano.data), minutos: plano.minutos } : null;
     try {
-      await api.post(`/estudos/${casca.conv}/edital/aplicar`, { materias: marcadas.map(({ nome, peso, topicos }) => ({ nome, peso, topicos })) });
-      toast(`${marcadas.length} matérias criadas ou atualizadas.`);
-      onFeito();
+      await api.post(`/estudos/${casca.conv}/edital/aplicar`, { materias: marcadas.map(({ nome, peso, topicos }) => ({ nome, peso, topicos })), cronograma });
+      toast(cronograma ? `${marcadas.length} matérias e o plano até ${plano.data}.` : `${marcadas.length} matérias criadas ou atualizadas.`);
+      onFeito(!!cronograma);
     } catch (e: any) { casca.erro(e.message); }
   }
 
@@ -180,25 +190,47 @@ export function LerEdital({ casca, onFeito }: { casca: Casca; onFeito: () => voi
             </LinhaAjuste>
           </View>
         ))}
+        {!!ex?.anexos?.length && (
+          <Text style={{ color: c.faint, fontSize: 12, lineHeight: 17 }}>
+            Lido de {ex.anexos.filter((a) => a.chars).map((a) => a.nome.split(" · ")[0]).join(" · ")}
+          </Text>
+        )}
+        <View style={{ gap: 8, borderWidth: 1, borderColor: c.line, borderRadius: 12, padding: 10 }}>
+          <Opcao rotulo="Montar o plano de estudos" dica="Um tópico por dia, as matérias na proporção do peso, revisão diária e um simulado por semana."
+                 valor={plano.ligado} onMuda={(ligado) => setPlano((p) => ({ ...p, ligado }))} />
+          {plano.ligado && (
+            <>
+              <LinhaAjuste rotulo="Data da prova" sub={ex?.data_prova ? "veio do edital" : "o edital não disse: escreva"}>
+                <TextInput value={plano.data} onChangeText={(data) => setPlano((p) => ({ ...p, data }))} placeholder="DD/MM/AAAA" placeholderTextColor={c.faint}
+                           keyboardType="numbers-and-punctuation" maxLength={10} style={[s.input, { width: 130, textAlign: "center" }]} />
+              </LinhaAjuste>
+              <LinhaAjuste rotulo="Por dia">
+                <Contador valor={plano.minutos} min={15} max={600} passo={15} fmt={(n) => `${n} min`} onMuda={(minutos) => setPlano((p) => ({ ...p, minutos }))} />
+              </LinhaAjuste>
+            </>
+          )}
+        </View>
         <View style={{ flexDirection: "row", gap: 8 }}>
           <Botao flex rotulo="Outro edital" onPress={() => { setItens([]); setEx(null); }} />
-          <Botao flex primario rotulo={`Criar ${itens.filter((x) => x.marcada).length}`} icone={<Check size={14} color={c.accentFg} />} onPress={aplicar} />
+          <Botao flex primario rotulo={`Criar ${itens.filter((x) => x.marcada).length}${plano.ligado ? " e o plano" : ""}`} icone={<Check size={14} color={c.accentFg} />} onPress={aplicar} />
         </View>
       </View>
     );
   return (
     <View style={{ gap: 10 }}>
       <Text style={[s.muted, { lineHeight: 19 }]}>
-        Cole o edital ou mande o arquivo. A IA procura o quadro de provas e o conteúdo programático e propõe as matérias com peso e
-        tópicos; você confere antes de criar. O edital não vira material de estudo.
+        Cole o link da página do concurso (ou do PDF), o texto, ou mande o arquivo. A IA procura o quadro de provas e o conteúdo
+        programático do seu cargo e propõe as matérias com peso e tópicos e o plano até a prova; você confere antes de criar.
       </Text>
+      <TextInput value={link} onChangeText={setLink} placeholder="https://… a página do concurso na banca" placeholderTextColor={c.faint}
+                 autoCapitalize="none" autoCorrect={false} keyboardType="url" style={s.input} />
       <TextInput value={cargo} onChangeText={setCargo} placeholder="Cargo (se o edital tem vários)" placeholderTextColor={c.faint} maxLength={120} style={s.input} />
-      <Area valor={texto} onMuda={setTexto} placeholder="ANEXO II — CONTEÚDO PROGRAMÁTICO…" linhas={5} fixa />
+      {!porLink && <Area valor={texto} onMuda={setTexto} placeholder="ou cole o texto: ANEXO II — CONTEÚDO PROGRAMÁTICO…" linhas={4} fixa />}
       {/* o botão logo abaixo do texto: com o teclado aberto ele continua à vista (o Voltar fecharia a folha) */}
       <View style={{ flexDirection: "row", gap: 8, alignItems: "center" }}>
         <Botao rotulo={enviando ? "Lendo…" : "Arquivo"} icone={<Paperclip size={14} color={c.fg} />} desabilitado={enviando || lendo} onPress={arquivo} />
-        <Text style={{ color: c.faint, fontSize: 12, flex: 1 }} numberOfLines={1}>{texto ? `${texto.length.toLocaleString("pt-BR")} caracteres` : ""}</Text>
-        <Botao primario rotulo={lendo ? "Lendo…" : "Ler o edital"} desabilitado={lendo || texto.trim().length < 200} onPress={ler} />
+        <Text style={{ color: c.faint, fontSize: 12, flex: 1 }} numberOfLines={1}>{!porLink && texto ? `${texto.length.toLocaleString("pt-BR")} caracteres` : ""}</Text>
+        <Botao primario rotulo={lendo ? "Lendo…" : "Ler o edital"} desabilitado={lendo || (!porLink && texto.trim().length < 200)} onPress={ler} />
       </View>
       {lendo && ex && <Text style={{ color: c.info, fontFamily: mono, fontSize: 11.5 }}>{ex.progresso || "começando…"}{numeros(ex) ? ` · ${numeros(ex)}` : ""}</Text>}
       {!lendo && !!ex?.aviso && <Text style={{ color: c.warn, fontSize: 13 }}>{ex.aviso}</Text>}
