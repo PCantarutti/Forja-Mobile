@@ -469,6 +469,26 @@ function Resultado({ casca, t, corrigindo, onVoltar, onRefazer, onParar }: {
         </View>
         {emCorrecao && <Text style={{ color: c.info, fontSize: 13 }}>as discursivas ainda estão sendo corrigidas</Text>}
         {!!t.aviso && <Text style={{ color: c.warn, fontSize: 13, lineHeight: 19 }}>{t.aviso}</Text>}
+        {!!t.por_materia?.length && (
+          <View style={{ gap: 8, borderTopWidth: 1, borderTopColor: c.line, paddingTop: 10 }}>
+            <Text style={{ color: c.faint, fontSize: 11.5 }}>Por matéria · cada erro foi para o caderno da matéria</Text>
+            {t.por_materia.map((x) => {
+              const pct = x.max ? x.pontos / x.max : 0;
+              const nome = casca.p?.materias?.find((m) => m.id === x.materia)?.nome ?? "Matéria tirada";
+              return (
+                <View key={x.materia} style={{ gap: 4 }}>
+                  <View style={{ flexDirection: "row", gap: 8 }}>
+                    <Text style={{ color: c.fg, fontSize: 12.5, flex: 1 }} numberOfLines={1}>{nome}</Text>
+                    <Text style={{ color: c.faint, fontFamily: mono, fontSize: 11.5 }}>{x.acertos}/{x.n}</Text>
+                  </View>
+                  <View style={{ height: 5, borderRadius: 3, backgroundColor: c.raised, overflow: "hidden" }}>
+                    <View style={{ height: 5, borderRadius: 3, width: `${Math.round(pct * 100)}%`, backgroundColor: pct >= 0.7 ? c.ok : pct >= 0.4 ? c.amber : c.err }} />
+                  </View>
+                </View>
+              );
+            })}
+          </View>
+        )}
         {t.por_topico.length > 1 && (
           <View style={{ gap: 8, borderTopWidth: 1, borderTopColor: c.line, paddingTop: 10 }}>
             {t.por_topico.map((x) => {

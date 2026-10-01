@@ -20,7 +20,7 @@ export type EstudosMaterial = { id: number; n: number; nome: string; arquivo: st
   figuras?: number | null; gabarito?: boolean;   // recortadas do PDF (material de OCR não tem)
   materia?: string };                              // id da matéria; "" = Geral (serve para todas)
 /** Matéria do objetivo (a conversa é o objetivo). acerto = % das entregas corrigidas. */
-export type EstudosMateria = { id: string; nome: string; acerto: number | null; entregas: number };
+export type EstudosMateria = { id: string; nome: string; peso?: number; acerto: number | null; entregas: number };
 /** Figura do PDF que uma questão usa (o recorte sai de /api/estudos-figura/<conv>/<material>/<id>). */
 export type EstudosFigura = { material: number; id: string; pagina: number; w?: number; h?: number; descricao?: string };
 export type EstudosTopico = { titulo: string; objetivo: string; pontos: string[]; status: "fila" | "escrevendo" | "pronto" | "erro" };
@@ -73,6 +73,7 @@ export type EstudosTentativa = {
   message_id: number; tipo: "tentativa"; prova_id: number; titulo: string; segundos: number; modo?: "prova" | "treino";
   correcao: Record<string, EstudosCorrecao>; motor: "forja" | "claude"; status: Status; etapa: string; aviso: string;
   pontos: number; max: number; nota: number; acertos: number; por_topico: { topico: string; pontos: number; max: number }[];
+  por_materia?: { materia: string; pontos: number; max: number; acertos: number; n: number }[];   // simulado geral do objetivo
   questoes: EstudosQuestao[]; stats: Stats;
 };
 export type EstudosProvaResumo = {
