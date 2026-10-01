@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { Pressable, ScrollView, View, type ViewStyle } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Text } from "./Texto";
-import { api, base, comToken, lerAjustes, salvaAjustes } from "./api";
+import { api, lerAjustes, salvaAjustes, textoComToken } from "./api";
 import { compartilhaTexto } from "./Comparar";
 import { pergunta } from "./Dialogo";
 import { TextoRico, temFormula } from "./Formula";
@@ -288,6 +288,7 @@ export default function Revisao({ casca }: { casca: Casca }) {
 
   async function gerar() {
     if (gerando || aguardando) return;
+    if (casca.exec) return toast("Espere terminar o que está rodando.");
     if (!casca.modelo) return toast("Escolha um modelo em Modelos (ou no chat) antes.");
     try {
       const id = await casca.garante();
@@ -314,9 +315,7 @@ export default function Revisao({ casca }: { casca: Casca }) {
   /** O .csv para o Anki (frente, verso, tópico) pelo compartilhar do Android: a rota não devolve JSON. */
   async function exportar() {
     try {
-      const r = await fetch(comToken(`${base()}/api/estudos/${casca.conv}/flashcards.csv`));
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      await compartilhaTexto("flashcards.csv", await r.text(), "text/csv");
+      await compartilhaTexto("flashcards.csv", await textoComToken(`/estudos/${casca.conv}/flashcards.csv`), "text/csv");
     } catch (e: any) { casca.erro(e.message); }
   }
 
@@ -393,7 +392,7 @@ export default function Revisao({ casca }: { casca: Casca }) {
               <Text style={s.muted}>cartões</Text>
             </View>
             <View style={{ flexDirection: "row", gap: 8 }}>
-              <Botao flex primario altura={40} rotulo="Gerar cartões" desabilitado={!!aguardando} onPress={gerar} />
+              <Botao flex primario altura={40} rotulo="Gerar cartões" desabilitado={!!aguardando || !!casca.exec} onPress={gerar} />
               <Botao altura={40} rotulo="Anki (.csv)" icone={<Download size={15} color={c.fg} />} desabilitado={!cartoes.length} onPress={exportar} />
             </View>
           </>

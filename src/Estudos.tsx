@@ -31,9 +31,9 @@ const TONS = [{ id: "direto", rotulo: "Direto" }, { id: "didatico", rotulo: "Did
 const TAMANHOS = [{ id: "curto", rotulo: "Curto" }, { id: "medio", rotulo: "Médio" }, { id: "completo", rotulo: "Completo" }] as const;
 const EXTRAS = [{ id: "exemplos", rotulo: "Exemplos resolvidos" }, { id: "mnemonicos", rotulo: "Mnemônicos" }, { id: "pegadinhas", rotulo: "Pegadinhas" }, { id: "quadro", rotulo: "Quadro-resumo" }] as const;
 const PROFUNDIDADES = [
-  { id: "rapida", rotulo: "Rápida", dica: "1 rodada de busca, 4 páginas" },
+  { id: "rapida", rotulo: "Rápida", dica: "1 rodada, 3 páginas" },
   { id: "normal", rotulo: "Normal", dica: "2 rodadas, 5 páginas por rodada" },
-  { id: "funda", rotulo: "Funda", dica: "4 rodadas, 6 páginas por rodada" },
+  { id: "funda", rotulo: "Funda", dica: "4 rodadas, 8 páginas por rodada — demora" },
 ] as const;
 const ETAPAS = [{ id: "material", rotulo: "Material" }, { id: "web", rotulo: "Web" }, { id: "plano", rotulo: "Roteiro" }, { id: "escrita", rotulo: "Escrita" }];
 const MARCA_TOPICO: Record<string, string> = { fila: "·", escrevendo: "›", pronto: "✓", erro: "✕" };
@@ -59,9 +59,9 @@ export default function Estudos({ conv, onCriada, onTurno }: { conv: Conv | null
   const teclado = useTeclado();
   const muda = (x: Partial<Ajustes>) => setAj((a) => { const n = { ...a, ...x }; salvaAjustes("estudos", n); return n; });
 
-  const carrega = useCallback(async (id = convId) => {
-    if (id == null) return setP(null);
-    try { setP(await api.get<EstudosProjeto>(`/estudos/${id}`)); } catch (e: any) { setErro(e.message); }
+  const carrega = useCallback(async (id = convId): Promise<EstudosProjeto | null> => {
+    if (id == null) { setP(null); return null; }
+    try { const np = await api.get<EstudosProjeto>(`/estudos/${id}`); setP(np); return np; } catch (e: any) { setErro(e.message); return null; }
   }, [convId]);
 
   /** Acompanha uma execução (POST que responde em SSE, ou o GET .../stream de uma que o PC disparou). */
@@ -74,7 +74,12 @@ export default function Estudos({ conv, onCriada, onTurno }: { conv: Conv | null
     } catch (e: any) {
       if (!ac.signal.aborted && !cancelado(e)) setErro(e.message);
     } finally {
-      if (!ac.signal.aborted) { setExec(null); await carrega(); onTurno(); }
+      if (!ac.signal.aborted) {
+        const np = await carrega();
+        setExec(null); onTurno();
+        // o stream caiu (rede, suspensão) com a execução ainda viva no PC: volta a acompanhar
+        if (!ac.signal.aborted && np?.rodando) segue(`/estudos/execucao/${np.rodando}/stream`);
+      }
     }
     return ultimo;
   }, [carrega, onTurno]);
@@ -88,7 +93,13 @@ export default function Estudos({ conv, onCriada, onTurno }: { conv: Conv | null
         setAj({ ...salvo, prefs: { ...PREFS, ...salvo.prefs }, escritor: salvo.escritor ?? (x.model ? { provider: x.provider, model: x.model, nome: x.model } : null) });
       });
   }, []);   // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => { carrega(); return () => abort.current?.abort(); }, [convId]);   // eslint-disable-line react-hooks/exhaustive-deps
+  // Trocar de conversa derruba o stream da anterior — menos quando a "troca" é a conversa que garante()
+  // acabou de criar para a execução que já está no ar.
+  const criada = useRef<number | null>(null);
+  useEffect(() => {
+    carrega();
+    return () => { if (criada.current !== convId) abort.current?.abort(); };
+  }, [convId]);   // eslint-disable-line react-hooks/exhaustive-deps
   // Execução que o PC disparou (ou que já rodava ao abrir): acompanha pelo stream.
   useEffect(() => { if (p?.rodando && !exec) segue(`/estudos/execucao/${p.rodando}/stream`); }, [p?.rodando]);   // eslint-disable-line react-hooks/exhaustive-deps
   // O tema do último resumo volta para o campo: refazer é um toque.
@@ -97,8 +108,10 @@ export default function Estudos({ conv, onCriada, onTurno }: { conv: Conv | null
   // Ao vivo com o PC: o carimbo da lista no /activity muda quando o estudo muda em qualquer aparelho.
   const carimbo = useRef<string | undefined>(undefined);
   const [carimboVisto, setCarimboVisto] = useState<string | undefined>(undefined);
+  // Segue olhando mesmo com execução acompanhada: dúvidas respondidas no PC e marcações de revisão/cronograma
+  // chegam na hora (o efeito do rodando não abre stream em dobro porque exige !exec).
   useEffect(() => {
-    if (convId == null || exec) return;
+    if (convId == null) return;
     const olha = () => api.get<{ lista?: string }>("/activity").then((a) => {
       if (carimbo.current !== undefined && a.lista && a.lista !== carimbo.current) { carrega(); setCarimboVisto(a.lista); }
       carimbo.current = a.lista;
@@ -106,12 +119,18 @@ export default function Estudos({ conv, onCriada, onTurno }: { conv: Conv | null
     olha();
     const t = setInterval(olha, 3000);
     return () => clearInterval(t);
-  }, [convId, exec, carrega]);
-  // O SSE morre com o app suspenso: ao voltar, recarrega (como o Chat).
+  }, [convId, carrega]);
+  // O SSE morre com o app suspenso: ao voltar, derruba o que ficou pendurado e reabre pelo projeto (como o Chat).
   useEffect(() => {
-    const sub = AppState.addEventListener("change", (st) => st === "active" && carrega());
+    const sub = AppState.addEventListener("change", async (st) => {
+      if (st !== "active") return;
+      abort.current?.abort();
+      setExec(null);
+      const np = await carrega();
+      if (np?.rodando) segue(`/estudos/execucao/${np.rodando}/stream`);
+    });
     return () => sub.remove();
-  }, [carrega]);
+  }, [carrega, segue]);
   // Acabou (aqui ou no PC): a faixa de fim do resumo aparece de novo.
   const rodava = useRef(false);
   useEffect(() => {
@@ -126,12 +145,13 @@ export default function Estudos({ conv, onCriada, onTurno }: { conv: Conv | null
   const garante = useCallback(async () => {
     if (convId != null) return convId;
     const nova = await api.post<Conv>("/conversations", { kind: "estudos" });
+    criada.current = nova.id;
     onCriada(nova);
     setConvId(nova.id);
     return nova.id;
   }, [convId, onCriada]);
 
-  const casca: Casca = { conv: convId, garante, p, exec, segue, recarrega: () => carrega(), modelo, carimbo: carimboVisto, erro: setErro, setAba, setImersao };
+  const casca: Casca = { conv: convId, garante, p, exec, segue, recarrega: async () => { await carrega(); }, modelo, carimbo: carimboVisto, erro: setErro, setAba, setImersao };
 
   async function estudar() {
     const t = tema.trim();
@@ -185,7 +205,7 @@ export default function Estudos({ conv, onCriada, onTurno }: { conv: Conv | null
   const secoes = texto ? sumario(texto) : [];
   const etapas = ETAPAS.filter((x) => x.id !== "web" || resumo?.web);
   const atual = resumo?.etapa === "pronto" ? etapas.length : etapas.findIndex((x) => x.id === resumo?.etapa);
-  const mostraFim = !!resumo && !rodandoResumo && !aguardando && fimVisto !== resumo.message_id && resumo.status !== "pronto";
+  const mostraFim = !!resumo && !rodandoResumo && fimVisto !== resumo.message_id && ["erro", "cancelado"].includes(resumo.status);
   const materiais = p?.materiais ?? [];
   const prefsRotulo = [NIVEIS.find((o) => o.id === aj.prefs.nivel)?.rotulo, TONS.find((o) => o.id === aj.prefs.tom)?.rotulo].join(" · ");
 
@@ -309,7 +329,7 @@ export default function Estudos({ conv, onCriada, onTurno }: { conv: Conv | null
                              style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: c.accent, alignItems: "center", justifyContent: "center" }}>
                     <View style={{ width: 12, height: 12, borderRadius: 2, backgroundColor: c.accentFg }} />
                   </Pressable>
-                ) : <BotaoEnviar pode={!!tema.trim() && !exec} onPress={estudar} />}
+                ) : <BotaoEnviar pode={!!tema.trim() && !exec && !lendo} onPress={estudar} />}
               </View>
             </View>
           </View>

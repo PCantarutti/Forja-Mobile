@@ -168,6 +168,13 @@ export async function imagemComToken(path: string): Promise<string> {
   return `data:${r.headers.get("content-type") ?? "image/jpeg"};base64,${btoa(bin)}`;
 }
 
+/** Texto de rota que não devolve JSON (o .csv do Anki): token no header, como o PC exige pela tailnet. */
+export async function textoComToken(path: string): Promise<string> {
+  const r = await fetch(`${base()}/api${path}`, { headers: { "X-Forja-Token": par?.token ?? "" } });
+  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  return r.text();
+}
+
 /** Imagem gerada ou de referência: rota sem token (main.py SEM_TOKEN). */
 export const urlImagem = (path: string, v = "") =>
   comToken(`${base()}/api/local/image/file?path=${encodeURIComponent(path)}${v ? `&v=${encodeURIComponent(v)}` : ""}`);

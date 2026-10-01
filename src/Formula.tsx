@@ -27,7 +27,9 @@ const EM_LINHA = /(?<![\w\\$])\$(?!\s)([^$\n]+?)(?<!\s)\$/g;
 export function paraHtml(markdown: string): string {
   const formulas: string[] = [];
   const guarda = (tex: string, bloco: boolean) => {
-    formulas.push(katex.renderToString(tex, { displayMode: bloco, throwOnError: false, output: "html" }));
+    // o modelo escreve "10 m" com espaço estreito (U+202F/U+00A0), que o KaTeX não conhece
+    const limpo = tex.replace(/[  ]/g, " ");
+    formulas.push(katex.renderToString(limpo, { displayMode: bloco, throwOnError: false, output: "html" }));
     return `\u0000F${formulas.length - 1}\u0000`;
   };
   const texto = matematica(markdown).replace(BLOCO, (_, f) => guarda(f, true)).replace(EM_LINHA, (_, f) => guarda(f, false));
@@ -36,9 +38,10 @@ export function paraHtml(markdown: string): string {
 }
 
 /** CSS da página: o tema do app (as cores vêm de c.*) + o do KaTeX. `fundo` é a cor do cartão onde a WebView mora. */
-function estilo(fundo: string, tamanho: number) {
+function estilo(fundo: string, tamanho: number, margem: number) {
   return `${KATEX_CSS}
 html,body{margin:0;padding:0;background:${fundo};color:${c.fg}}
+.md{padding:${margem ? `12px ${margem}px 32px` : "0"}}
 body{font-family:system-ui,Roboto,-apple-system,sans-serif;font-size:${tamanho}px;line-height:1.55;overflow-wrap:anywhere;-webkit-text-size-adjust:100%}
 .md>*:first-child{margin-top:0}.md>*:last-child{margin-bottom:0}
 p,ul,ol,blockquote,pre,table{margin:0 0 .75em}
@@ -59,7 +62,7 @@ img{max-width:100%}
 
 // A página avisa a altura (para a WebView encaixar no cartão) e, no documento inteiro, o trecho marcado.
 const SCRIPT = `<script>(function(){
-  var rn=window.ReactNativeWebView;function altura(){rn.postMessage(JSON.stringify({tipo:"altura",h:document.documentElement.scrollHeight}))}
+  var rn=window.ReactNativeWebView;function altura(){rn.postMessage(JSON.stringify({tipo:"altura",h:Math.ceil(document.body.getBoundingClientRect().height)}))}
   addEventListener("load",altura);new ResizeObserver(altura).observe(document.body);
   var b=document.getElementById("explicar");
   if(b){document.addEventListener("selectionchange",function(){var s=getSelection(),t=s?String(s).trim():"";
@@ -73,8 +76,8 @@ const SCRIPT = `<script>(function(){
 })();</script>`;
 const CSP = `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data: blob: https:; font-src data:">`;
 
-function pagina(html: string, fundo: string, tamanho: number, explicar: boolean) {
-  return `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">${CSP}<style>${estilo(fundo, tamanho)}</style></head>` +
+function pagina(html: string, fundo: string, tamanho: number, explicar: boolean, margem = 0) {
+  return `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">${CSP}<style>${estilo(fundo, tamanho, margem)}</style></head>` +
     `<body><div class="md">${html}</div>${explicar ? '<button id="explicar" type="button">Explicar de outro jeito</button>' : ""}${SCRIPT}</body></html>`;
 }
 
@@ -105,7 +108,7 @@ export type DocumentoRef = { irPara: (i: number) => void };
  *  passava do limite de altura do Android). Marcar um trecho mostra "Explicar de outro jeito". */
 export const DocumentoRico = forwardRef<DocumentoRef, { markdown: string; onExplicar?: (trecho: string) => void }>(function DocumentoRico({ markdown, onExplicar }, ref) {
   const web = useRef<WebView>(null);
-  const html = useMemo(() => pagina(paraHtml(markdown), c.bg, 15.5, !!onExplicar), [markdown, onExplicar]);
+  const html = useMemo(() => pagina(paraHtml(markdown), c.bg, 15.5, !!onExplicar, 16), [markdown, onExplicar]);
   useImperativeHandle(ref, () => ({ irPara: (i) => web.current?.injectJavaScript(`window.__forja && __forja.ir(${i}); true;`) }), []);
   return (
     <WebView ref={web} originWhitelist={["*"]} source={{ html }} style={{ flex: 1, backgroundColor: c.bg }} overScrollMode="never"
