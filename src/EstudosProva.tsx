@@ -1,5 +1,5 @@
 import { type ReactNode, useEffect, useRef, useState } from "react";
-import { ActivityIndicator, Image, Modal, Pressable, ScrollView, StatusBar, View } from "react-native";
+import { ActivityIndicator, Image, Modal, Pressable, ScrollView, StatusBar, View, useWindowDimensions } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Text, TextInput } from "./Texto";
 import { api, base, comToken, lerAjustes, salvaAjustes } from "./api";
@@ -65,22 +65,25 @@ function AguardandoClaude({ texto, onCancelar }: { texto: string; onCancelar: ()
  *  sumia), proporção já reservada pelo w/h, toque abre em tela cheia. Material apagado: some sem quebrar. */
 export function FiguraQuestao({ conv, f }: { conv: number | null; f?: EstudosFigura }) {
   const [aberta, setAberta] = useState(false);
-  const [falhou, setFalhou] = useState(false);
-  if (!f || conv == null || falhou) return null;
-  const uri = comToken(`${base()}/api/estudos-figura/${conv}/${f.material}/${f.id}`);
+  const [falhou, setFalhou] = useState("");   // a uri que falhou: a próxima questão (outra figura) aparece
+  const janela = useWindowDimensions();
+  const uri = f && conv != null ? comToken(`${base()}/api/estudos-figura/${conv}/${f.material}/${f.id}`) : "";
+  if (!f || !uri || falhou === uri) return null;
   const proporcao = f.w && f.h ? f.w / f.h : 1.4;
+  // tela cheia: a maior largura que ainda cabe na altura (figura alta, ou o celular deitado)
+  const larguraCheia = Math.min(janela.width - 20, (janela.height - 140) * proporcao);
   return (
     <>
       <Pressable onPress={() => setAberta(true)} accessibilityRole="imagebutton" accessibilityLabel={f.descricao || "Figura da questão; toque para ampliar"}
                  style={{ backgroundColor: "#fff", borderRadius: 12, padding: 8, borderWidth: 1, borderColor: c.line }}>
-        <Image source={{ uri }} onError={() => setFalhou(true)} resizeMode="contain"
+        <Image source={{ uri }} onError={() => setFalhou(uri)} resizeMode="contain"
                style={{ width: "100%", aspectRatio: proporcao, maxHeight: 420 }} />
       </Pressable>
       <Modal visible={aberta} transparent animationType="fade" statusBarTranslucent onRequestClose={() => setAberta(false)}>
         <StatusBar barStyle="light-content" />
         <Pressable onPress={() => setAberta(false)} style={{ flex: 1, backgroundColor: "rgba(0,0,0,.94)", justifyContent: "center", padding: 10 }}>
-          <View style={{ backgroundColor: "#fff", borderRadius: 10, padding: 6 }}>
-            <Image source={{ uri }} resizeMode="contain" style={{ width: "100%", aspectRatio: proporcao }} />
+          <View style={{ backgroundColor: "#fff", borderRadius: 10, padding: 6, alignSelf: "center" }}>
+            <Image source={{ uri }} resizeMode="contain" style={{ width: larguraCheia, aspectRatio: proporcao }} />
           </View>
           <Text style={{ color: "#bbb", textAlign: "center", marginTop: 14, fontSize: 13 }}>Toque para fechar · gire o celular para ver maior</Text>
         </Pressable>
@@ -532,8 +535,8 @@ export default function Provas({ casca, pendente, onPendenteUsado }: { casca: Ca
   const total = cfg.me + cfg.vf + cfg.disc;
   const podeGerar = total > 0 && total <= 40 && !ocupado;
   const figs = p?.figuras;
-  // já olhadas todas: o teto é o que serve; antes disso, o que foi recortado
-  const maxFiguras = Math.min(total, figs ? (figs.olhadas >= figs.detectadas ? figs.uteis : figs.detectadas) : 0);
+  // o teto: as que servem mais as ainda não olhadas (nada olhado = as recortadas; tudo olhado = as úteis)
+  const maxFiguras = Math.min(total, figs ? figs.uteis + figs.detectadas - figs.olhadas : 0);
   const comFigura = Math.min(cfg.figuras ?? 0, maxFiguras);
 
   async function gerar(extra?: ProvaPendente) {
