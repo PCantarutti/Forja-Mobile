@@ -145,6 +145,29 @@ export async function enviaArquivo<T>(path: string, arq: { uri: string; name: st
   return dados as T;
 }
 
+/** Vários arquivos num multipart `files` (+ campos de texto): o gabarito em prints vai numa requisição só, e o PC
+ *  junta as metades no mesmo bloco. Mesmo cuidado do enviaArquivo: File do expo-file-system, com o nome original. */
+export async function enviaArquivos<T>(path: string, arqs: { uri: string; name: string }[], campos: Record<string, string> = {}): Promise<T> {
+  const pasta = new Pasta(Paths.cache, "envio");
+  if (!pasta.exists) pasta.create();
+  const copias = [];
+  for (const [i, arq] of arqs.entries()) {
+    const envio = new ArquivoLocal(pasta, `${i + 1}-${arq.name}`);
+    if (envio.exists) envio.delete();
+    await new ArquivoLocal(arq.uri).copy(envio);
+    copias.push(envio);
+  }
+  const fd = new FormData();
+  copias.forEach((x) => fd.append("files", x as any));
+  Object.entries(campos).forEach(([k, v]) => fd.append(k, v));
+  let r;
+  try { r = await fetch(`${base()}/api${path}`, { method: "POST", headers: { ...cab() }, body: fd as any }); }
+  finally { copias.forEach((x) => { if (x.exists) x.delete(); }); }
+  const dados = await r.json().catch(() => null);
+  if (!r.ok) throw Object.assign(new Error(typeof dados?.detail === "string" ? dados.detail : `HTTP ${r.status}`), { status: r.status });
+  return dados as T;
+}
+
 /** Ajustes dos inputs guardados no aparelho (o desktop guarda os dele no localStorage): modelo, esforço, opções de cada tela. */
 export async function lerAjustes<T>(chave: string, padrao: T): Promise<T> {
   try { return { ...padrao, ...JSON.parse((await SecureStore.getItemAsync(`ajustes.${chave}`)) ?? "{}") }; }

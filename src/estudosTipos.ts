@@ -155,8 +155,14 @@ export type EstudosSimuladoResumo = {
   message_id: number; material_id: number; material: string; status: string; etapa: string; placar: Partial<EstudosPlacarSimulado>;
   gabarito: string; prova_id: number | null; criado: string;
 };
+/** O bloco do gabarito usado (gabarito com vários cargos/versões): as opções vêm com quantas a IA bateu. */
+export type EstudosBlocoGabarito = {
+  id: string; rotulo: string; motivo: string; total: number;
+  opcoes: { id: string; rotulo: string; cargo: string; prova: string; iguais: number; de: number }[];
+};
 export type EstudosSimulado = EstudosSimuladoResumo & {
   tipo: "simulado"; titulo: string; aviso: string; progresso: string; questoes: EstudosQuestaoReal[]; ranking: EstudosRanking | null; stats: Stats;
+  bloco?: EstudosBlocoGabarito | null;
 };
 export type EstudosCandidato = {
   url: string; titulo: string; trecho: string; tipo: "prova" | "gabarito"; exame: string; status: "fila" | "baixando" | "anexado" | "rejeitado";

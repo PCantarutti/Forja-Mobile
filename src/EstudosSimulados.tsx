@@ -2,7 +2,8 @@ import { useEffect, useState } from "react";
 import { Linking, Pressable, ScrollView, View, type ViewStyle } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Text, TextInput } from "./Texto";
-import { api } from "./api";
+import * as DocumentPicker from "expo-document-picker";
+import { api, enviaArquivos } from "./api";
 import { pergunta } from "./Dialogo";
 import { ArrowRight, Check, Refresh, Search, Trash, X } from "./icones";
 import { useTeclado } from "./teclado";
@@ -17,7 +18,7 @@ const ETAPA: Record<string, string> = {
 };
 const pct = (a: number, t: number) => (t ? Math.round((a / t) * 100) : 0);
 const corPct = (p: number) => (p >= 70 ? c.ok : p >= 50 ? c.warn : c.err);
-type Fonte = "pdf" | "material" | "colar";
+type Fonte = "pdf" | "material" | "colar" | "imagem";
 
 /** Aba Simulados (a do PC, EstudosSimulados): buscar provas reais na web, conferir a IA com o gabarito oficial,
  *  fazer o simulado como prova e ver o que mais cai. */
@@ -87,6 +88,27 @@ export default function Simulados({ casca, onProvas }: { casca: Casca; onProvas:
     if (viva) await api.post(`/estudos/execucao/${viva.message_id}/cancelar`).catch(() => {});
   }
 
+  // Gabarito por imagem (o do PC): prints → um modelo que enxerga anota em texto, numa chamada só dele → material
+  const [lendoImagem, setLendoImagem] = useState("");
+  async function lerImagens() {
+    if (!form || !casca.modelo) return toast("Escolha um modelo que enxerga em Modelos antes.");
+    const r = await DocumentPicker.getDocumentAsync({ type: "image/*", multiple: true, copyToCacheDirectory: true });
+    if (r.canceled || !r.assets?.length) return;
+    setLendoImagem(`lendo ${r.assets.length} imagem${r.assets.length === 1 ? "" : "ns"}…`);
+    try {
+      const j = await enviaArquivos<{ material: { id: number }; questoes: number; modelo: string; blocos: { rotulo: string; n: number }[] }>(
+        `/estudos/${casca.conv}/gabarito/imagem`, r.assets.map((x) => ({ uri: x.uri, name: x.name })), { provider: casca.modelo.provider, model: casca.modelo.model });
+      await casca.recarrega();
+      setForm((f) => f && { ...f, fonte: "material", outro: j.material.id });
+      setLendoImagem(`${j.questoes} respostas lidas por ${j.modelo}: ${j.blocos.map((b) => `${b.rotulo} (${b.n})`).join(", ")}`);
+    } catch (e: any) { setLendoImagem(""); casca.erro(e.message); }
+  }
+
+  async function trocarBloco(id: number, bloco: string) {
+    try { setDetalhe(await api.post<EstudosSimulado>(`/estudos/simulado/${id}/gabarito`, { bloco })); await casca.recarrega(); }
+    catch (e: any) { casca.erro(e.message); }
+  }
+
   async function virarProva(d: EstudosSimulado) {
     if (d.prova_id) return onProvas();
     try {
@@ -142,7 +164,15 @@ export default function Simulados({ casca, onProvas }: { casca: Casca; onProvas:
                 <View style={{ gap: 8, backgroundColor: c.raised, borderRadius: 12, padding: 10 }}>
                   <Text style={s.secao2}>DE ONDE VEM O GABARITO</Text>
                   <Seletor cheio valor={form.fonte} onMuda={(fonte) => setForm({ ...form, fonte })}
-                           opcoes={[{ id: "pdf", rotulo: "Do PDF" }, { id: "material", rotulo: "Material" }, { id: "colar", rotulo: "Colar" }]} />
+                           opcoes={[{ id: "pdf", rotulo: "Do PDF" }, { id: "material", rotulo: "Material" }, { id: "colar", rotulo: "Colar" }, { id: "imagem", rotulo: "Imagem" }]} />
+                  {form.fonte === "imagem" && (
+                    <View style={{ gap: 6 }}>
+                      <Botao rotulo="Escolher as imagens do gabarito" onPress={lerImagens} />
+                      <Text style={[s.faint, { fontSize: 12.5, lineHeight: 18 }]}>
+                        {lendoImagem || "Pode ser o gabarito inteiro, com vários cargos e versões: um modelo que enxerga anota em texto, separado da prova."}
+                      </Text>
+                    </View>
+                  )}
                   {form.fonte === "material" && (provas.length < 2 && (p?.materiais.length ?? 0) < 2
                     ? <Text style={[s.faint, { fontSize: 13 }]}>Não há outro material no estudo.</Text>
                     : (p?.materiais ?? []).filter((x) => x.id !== m.id).map((x) => (
@@ -158,7 +188,7 @@ export default function Simulados({ casca, onProvas }: { casca: Casca; onProvas:
                                style={{ color: c.fg, fontFamily: mono, fontSize: 13, minHeight: 70, borderWidth: 1, borderColor: c.line, borderRadius: 10, padding: 8 }} />
                   )}
                   <Botao primario rotulo="Conferir" onPress={conferir}
-                         desabilitado={!!casca.exec || (form.fonte === "material" && !form.outro) || (form.fonte === "colar" && form.texto.trim().length < 3)} />
+                         desabilitado={!!casca.exec || form.fonte === "imagem" || (form.fonte === "material" && !form.outro) || (form.fonte === "colar" && form.texto.trim().length < 3)} />
                 </View>
               )}
               {analise?.material_id === m.id && (
@@ -170,7 +200,8 @@ export default function Simulados({ casca, onProvas }: { casca: Casca; onProvas:
                 </View>
               )}
               {ultima && aberta === ultima.message_id && detalhe?.message_id === ultima.message_id && (
-                <Resultado d={detalhe} so={so} onSo={setSo} onProva={() => virarProva(detalhe)} onApagar={() => apagar(detalhe)} />
+                <Resultado d={detalhe} so={so} onSo={setSo} onProva={() => virarProva(detalhe)} onApagar={() => apagar(detalhe)}
+                           onBloco={(b) => trocarBloco(detalhe.message_id, b)} />
               )}
             </View>
           );
@@ -242,8 +273,9 @@ function Barra({ nome, a, t }: { nome: string; a: number; t: number }) {
   );
 }
 
-function Resultado({ d, so, onSo, onProva, onApagar }: { d: EstudosSimulado; so: "div" | "todas"; onSo: (v: "div" | "todas") => void;
-                                                       onProva: () => void; onApagar: () => void }) {
+function Resultado({ d, so, onSo, onProva, onApagar, onBloco }: { d: EstudosSimulado; so: "div" | "todas"; onSo: (v: "div" | "todas") => void;
+                                                       onProva: () => void; onApagar: () => void; onBloco: (id: string) => void }) {
+  const [trocando, setTrocando] = useState(false);
   // conferência que parou no meio (erro, cancelada) não tem placar inteiro: tudo com valor padrão
   const pl: EstudosPlacarSimulado = { questoes: 0, com_gabarito: 0, resolvidas: 0, acertos: 0, em_branco: 0, por_area: [],
     so_texto: { resolvidas: 0, acertos: 0 }, figura_vista: { resolvidas: 0, acertos: 0 }, figura_faltou: { resolvidas: 0, acertos: 0 },
@@ -256,6 +288,22 @@ function Resultado({ d, so, onSo, onProva, onApagar }: { d: EstudosSimulado; so:
         <Text style={{ color: c.fg, fontSize: 26, fontWeight: "700" }}>{pct(pl.acertos, pl.resolvidas)}%</Text>
         <Text style={{ color: c.muted, fontSize: 13, flex: 1 }}>a IA acertou {pl.acertos} de {pl.resolvidas} · {d.stats.escritor}</Text>
       </View>
+      {!!d.bloco && (
+        // gabarito com vários cargos/versões: o bloco que valeu, por quê, e trocar sem resolver de novo
+        <View style={{ gap: 6, borderWidth: 1, borderColor: c.line, borderRadius: 10, padding: 8 }}>
+          <Pressable onPress={() => setTrocando((v) => !v)} style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+            <Text style={{ color: c.fg, fontSize: 13.5, flex: 1 }}>Gabarito: {d.bloco.rotulo || "escolha o bloco da sua prova"}</Text>
+            <Text style={{ color: c.accentText, fontSize: 13 }}>{trocando ? "fechar" : "trocar"}</Text>
+          </Pressable>
+          {!!d.bloco.motivo && <Text style={[s.faint, { fontSize: 12 }]}>{d.bloco.motivo}</Text>}
+          {trocando && d.bloco.opcoes.map((o) => (
+            <Pressable key={o.id} onPress={() => { setTrocando(false); onBloco(o.id); }} style={{ flexDirection: "row", gap: 8, paddingVertical: 4 }}>
+              <Text style={{ color: o.id === d.bloco!.id ? c.accentText : c.fg, fontSize: 13, flex: 1 }} numberOfLines={1}>{o.rotulo}</Text>
+              {!!o.de && <Text style={{ color: c.faint, fontFamily: mono, fontSize: 12 }}>{o.iguais}/{o.de}</Text>}
+            </Pressable>
+          ))}
+        </View>
+      )}
       <Barra nome="Só texto" a={pl.so_texto?.acertos ?? 0} t={pl.so_texto?.resolvidas ?? 0} />
       <Barra nome="Com a figura (vista)" a={pl.figura_vista?.acertos ?? 0} t={pl.figura_vista?.resolvidas ?? 0} />
       <Barra nome="Faltou a figura" a={pl.figura_faltou?.acertos ?? 0} t={pl.figura_faltou?.resolvidas ?? 0} />
