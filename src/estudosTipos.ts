@@ -17,7 +17,7 @@ export type EstudosPreferencias = {
 };
 
 export type EstudosMaterial = { id: number; n: number; nome: string; arquivo: string; chars: number; paginas: number; ocr: boolean; uso: "conteudo" | "prova";
-  figuras?: number | null };   // recortadas do PDF (material de OCR não tem)
+  figuras?: number | null; gabarito?: boolean };   // recortadas do PDF (material de OCR não tem)
 /** Figura do PDF que uma questão usa (o recorte sai de /api/estudos-figura/<conv>/<material>/<id>). */
 export type EstudosFigura = { material: number; id: string; pagina: number; w?: number; h?: number; descricao?: string };
 export type EstudosTopico = { titulo: string; objetivo: string; pontos: string[]; status: "fila" | "escrevendo" | "pronto" | "erro" };
@@ -109,12 +109,41 @@ export type EstudosProjeto = {
   resumo: EstudosEstado | null; rodando: number | null; provas: EstudosProvaResumo[]; topicos: string[];
   duvidas: Record<string, number>; revisao: EstudosPainel;
   figuras?: { detectadas: number; uteis: number; olhadas: number };
+  simulados?: EstudosSimuladoResumo[]; ranking?: EstudosRanking | null; busca?: EstudosBusca | null;
+};
+
+/** Simulados reais (o mesmo do PC, types.ts): a IA conferida com o gabarito oficial, o ranking e a busca na web. */
+export type EstudosQuestaoReal = {
+  numero: number; pagina: number; area: string; assunto: string; oficial: string; ia: string; certa: boolean | null;
+  conta: string; motivo: string; inicio: string; figura: "" | "vista" | "faltou";
+};
+type Parte = { resolvidas: number; acertos: number };
+export type EstudosPlacarSimulado = {
+  questoes: number; com_gabarito: number; resolvidas: number; acertos: number; em_branco: number;
+  so_texto: Parte; figura_vista: Parte; figura_faltou: Parte; por_area: { area: string; total: number; acertos: number }[];
+};
+export type EstudosRanking = { itens: { assunto: string; area: string; questoes: number; simulados: number; fracao: number }[]; simulados: number; questoes: number };
+export type EstudosSimuladoResumo = {
+  message_id: number; material_id: number; material: string; status: string; etapa: string; placar: Partial<EstudosPlacarSimulado>;
+  gabarito: string; prova_id: number | null; criado: string;
+};
+export type EstudosSimulado = EstudosSimuladoResumo & {
+  tipo: "simulado"; titulo: string; aviso: string; progresso: string; questoes: EstudosQuestaoReal[]; ranking: EstudosRanking | null; stats: Stats;
+};
+export type EstudosCandidato = {
+  url: string; titulo: string; trecho: string; tipo: "prova" | "gabarito"; exame: string; status: "fila" | "baixando" | "anexado" | "rejeitado";
+  motivo: string; material_id?: number;
+};
+export type EstudosBusca = {
+  message_id: number; tipo: "busca"; titulo: string; pedido: string; status: Status; etapa: string; aviso: string; progresso: string;
+  buscas: { busca: string; achados: number }[]; candidatos: EstudosCandidato[]; anexados: { material_id: number; nome: string; tipo: string; url: string }[];
+  stats: Stats;
 };
 
 /** O retrato de uma execução viva (o que o SSE de /estudos/execucao/{id}/stream manda a cada 0,3 s). */
-export type Exec = EstudosEstado | EstudosProva | EstudosTentativa | EstudosFlashcards;
+export type Exec = EstudosEstado | EstudosProva | EstudosTentativa | EstudosFlashcards | EstudosSimulado | EstudosBusca;
 
-export type Aba = "resumo" | "provas" | "duvidas" | "revisao" | "desempenho";
+export type Aba = "resumo" | "provas" | "simulados" | "duvidas" | "revisao" | "desempenho";
 /** O que vai no corpo de quem pede trabalho ao backend: escritor e, opcional, o modelo de leitura/conferência. */
 export type Modelo = { provider: string; model: string; ex_provider: string; ex_model: string };
 /** Pergunta que chega de fora na aba Dúvidas (o "explicar de outro jeito" de um trecho do resumo). */

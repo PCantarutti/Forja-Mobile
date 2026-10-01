@@ -13,6 +13,7 @@ import { c, mono, s } from "./tema";
 import { Area, Botao, Chip, Folha, Lista, Pulsa, Seletor, toast } from "./ui";
 import { DocumentoRico, type DocumentoRef, sumario } from "./Formula";
 import EstudosMapaMental from "./EstudosMapaMental";
+import Simulados from "./EstudosSimulados";
 import { type Aba, type Casca, type EstudosEstado, type EstudosPreferencias, type EstudosProjeto, type Exec, type Modelo,
          type Pendente, type ProvaPendente, PEDIDO_CLAUDE, numeros } from "./estudosTipos";
 import Provas from "./EstudosProva";
@@ -224,6 +225,7 @@ export default function Estudos({ conv, onCriada, onTurno }: { conv: Conv | null
                     contentContainerStyle={{ flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 10, paddingVertical: 6 }}>
           {abaBtn("resumo", "Resumo")}
           {abaBtn("provas", "Provas", p?.provas.length)}
+          {abaBtn("simulados", "Simulados", p?.simulados?.length ? new Set(p.simulados.map((x) => x.material_id)).size : undefined)}
           {abaBtn("duvidas", "Dúvidas", p?.duvidas?.geral)}
           {abaBtn("revisao", "Revisão", p?.revisao?.vencem)}
           {abaBtn("desempenho", "Desempenho")}
@@ -235,6 +237,7 @@ export default function Estudos({ conv, onCriada, onTurno }: { conv: Conv | null
       {aba === "provas" ? <Provas casca={casca} pendente={provaPendente} onPendenteUsado={() => setProvaPendente(null)} />
        : aba === "duvidas" ? <Duvidas casca={casca} pendente={pendente} onPendenteUsado={() => setPendente(null)} />
        : aba === "revisao" ? <Revisao casca={casca} />
+       : aba === "simulados" ? <Simulados casca={casca} onProvas={() => setAba("provas")} />
        : aba === "desempenho" ? <Desempenho casca={casca} onProva={(x) => { setProvaPendente(x); setAba("provas"); }} />
        : (
         <>
