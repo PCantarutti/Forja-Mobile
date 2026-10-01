@@ -192,15 +192,16 @@ export function LerEdital({ casca, onFeito }: { casca: Casca; onFeito: () => voi
         Cole o edital ou mande o arquivo. A IA procura o quadro de provas e o conteúdo programático e propõe as matérias com peso e
         tópicos; você confere antes de criar. O edital não vira material de estudo.
       </Text>
-      <Area valor={texto} onMuda={setTexto} placeholder="ANEXO II — CONTEÚDO PROGRAMÁTICO…" linhas={6} fixa />
+      <TextInput value={cargo} onChangeText={setCargo} placeholder="Cargo (se o edital tem vários)" placeholderTextColor={c.faint} maxLength={120} style={s.input} />
+      <Area valor={texto} onMuda={setTexto} placeholder="ANEXO II — CONTEÚDO PROGRAMÁTICO…" linhas={5} fixa />
+      {/* o botão logo abaixo do texto: com o teclado aberto ele continua à vista (o Voltar fecharia a folha) */}
       <View style={{ flexDirection: "row", gap: 8, alignItems: "center" }}>
         <Botao rotulo={enviando ? "Lendo…" : "Arquivo"} icone={<Paperclip size={14} color={c.fg} />} desabilitado={enviando || lendo} onPress={arquivo} />
-        {!!texto && <Text style={{ color: c.faint, fontSize: 12 }}>{texto.length.toLocaleString("pt-BR")} caracteres</Text>}
+        <Text style={{ color: c.faint, fontSize: 12, flex: 1 }} numberOfLines={1}>{texto ? `${texto.length.toLocaleString("pt-BR")} caracteres` : ""}</Text>
+        <Botao primario rotulo={lendo ? "Lendo…" : "Ler o edital"} desabilitado={lendo || texto.trim().length < 200} onPress={ler} />
       </View>
-      <TextInput value={cargo} onChangeText={setCargo} placeholder="Cargo (se o edital tem vários)" placeholderTextColor={c.faint} maxLength={120} style={s.input} />
       {lendo && ex && <Text style={{ color: c.info, fontFamily: mono, fontSize: 11.5 }}>{ex.progresso || "começando…"}{numeros(ex) ? ` · ${numeros(ex)}` : ""}</Text>}
       {!lendo && !!ex?.aviso && <Text style={{ color: c.warn, fontSize: 13 }}>{ex.aviso}</Text>}
-      <Botao primario altura={44} rotulo={lendo ? "Lendo o edital…" : "Ler o edital"} desabilitado={lendo || texto.trim().length < 200} onPress={ler} />
     </View>
   );
 }
