@@ -403,7 +403,7 @@ export default function Estudos({ conv, onCriada, onTurno }: { conv: Conv | null
                 }} />
               </View>
             ) : (
-              <View style={{ flex: 1, alignItems: "center", justifyContent: "center", padding: 24, gap: 10 }}>
+              <ScrollView style={{ flex: 1 }} contentContainerStyle={{ flexGrow: 1, alignItems: "center", justifyContent: "center", padding: 24, gap: 10 }}>
                 {rodandoResumo ? <ActivityIndicator color={c.muted} /> : (
                   <>
                     <Livro size={32} color={c.muted} />
@@ -429,7 +429,7 @@ export default function Estudos({ conv, onCriada, onTurno }: { conv: Conv | null
                     )}
                   </>
                 )}
-              </View>
+              </ScrollView>
             )}
             {!!texto && !rodandoResumo && !!resumo && (
               <Text style={{ color: c.faint, fontFamily: mono, fontSize: 11.5, paddingHorizontal: 14, paddingVertical: 6 }} numberOfLines={1}>

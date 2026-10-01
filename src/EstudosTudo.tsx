@@ -187,7 +187,7 @@ export function LerEdital({ casca, onFeito }: { casca: Casca; onFeito: (comPlano
               <TextInput value={x.nome} onChangeText={(nome) => muda(i, { nome })} maxLength={60} style={{ color: c.fg, fontSize: 14.5, flex: 1, padding: 0 }} />
               <Text style={{ color: x.existe ? c.faint : c.accentText, fontSize: 11.5 }}>{x.existe ? "atualiza" : "nova"}</Text>
             </View>
-            <LinhaAjuste rotulo="Peso" sub={`${x.topicos.length} tópicos${x.questoes ? ` · ${x.questoes} questões no edital` : ""}`}>
+            <LinhaAjuste rotulo="Peso" sub={`${x.topicos.length} tópicos${x.questoes ? ` · vale ${x.questoes} no quadro de provas (questões × peso)` : ""}`}>
               <Contador valor={x.peso} min={1} max={100} onMuda={(peso) => muda(i, { peso })} />
             </LinhaAjuste>
           </View>
