@@ -17,7 +17,7 @@ import { BaixarModelosRaiz, abreBaixarModelos } from "./src/BaixarModelos";
 import Configuracoes from "./src/Configuracoes";
 import { Toasts } from "./src/ui";
 import { Gear, Abaixo, Balanca, Balao, Busca, Chip, Codigo, Divide, Globo, Filme, Imagem, Info, Menu, Novo, PainelDir, Pasta as IconePasta, Prancheta, Quadro,
-         Pulso, Ramo, Sair, Seta, Term, Voltar, Livro } from "./src/icones";
+         Pulso, Ramo, Sair, Seta, Term, Voltar, Livro, Camera } from "./src/icones";
 import Imagens from "./src/Imagens";
 import LeitorQR from "./src/LeitorQR";
 import Maestro from "./src/Maestro";
@@ -25,6 +25,7 @@ import { Painel, PAINEIS, type PainelId } from "./src/Painel";
 import Pesquisa from "./src/Pesquisa";
 import Design from "./src/Design";
 import Estudos from "./src/Estudos";
+import Conteudo from "./src/Conteudo";
 import Board from "./src/Board";
 import { LogoMarca, LogoTexto } from "./src/Logo";
 import EscolhePasta, { nomePasta } from "./src/Pasta";
@@ -69,7 +70,7 @@ class Protecao extends Component<{ children: ReactNode; onVoltar: () => void }, 
   }
 }
 
-type Pagina = "chat" | "agent" | "maestro" | "imagem" | "video" | "comparar" | "pesquisa" | "design" | "estudos" | "board" | "sites";
+type Pagina = "chat" | "agent" | "maestro" | "imagem" | "video" | "comparar" | "pesquisa" | "design" | "estudos" | "conteudo" | "board" | "sites";
 // As seções do Forja Desktop (Controls.tsx, SectionTabs), na mesma ordem, + os sites que o agente subiu.
 const PAGINAS: { id: Pagina; rotulo: string; Icone: typeof Balao }[] = [
   { id: "chat", rotulo: "Chat", Icone: Balao },
@@ -81,6 +82,7 @@ const PAGINAS: { id: Pagina; rotulo: string; Icone: typeof Balao }[] = [
   { id: "pesquisa", rotulo: "Pesquisa", Icone: Busca },
   { id: "design", rotulo: "Design", Icone: Quadro },
   { id: "estudos", rotulo: "Estudos", Icone: Livro },
+  { id: "conteudo", rotulo: "Conteúdo", Icone: Camera },
   { id: "board", rotulo: "Board", Icone: Prancheta },
   { id: "sites", rotulo: "Sites", Icone: Globo },
 ];
@@ -264,6 +266,8 @@ function Raiz({ onConfig }: { onConfig: () => void }) {
             <Comparar key={sessao} conv={conv} onCriada={criada} onTurno={turno} />
           ) : pagina === "design" ? (
             <Design key={sessao} conv={conv} onCriada={criada} onTurno={turno} />
+          ) : pagina === "conteudo" ? (
+            <Conteudo key={sessao} conv={conv} onAbre={(c) => abre(c, "conteudo")} />
           ) : pagina === "estudos" ? (
             <Estudos key={sessao} conv={conv} onCriada={criada} onTurno={turno} />
           ) : pagina === "pesquisa" ? (
