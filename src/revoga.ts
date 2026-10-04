@@ -20,7 +20,10 @@ function doForja(x: any): any {
   return null;
 }
 
-const idDe = (d: { call_id?: string | null; run_id?: string }) => d.call_id || `fim-${d.run_id ?? ""}`;
+// Aviso avulso do PC (mobile.avisa: Conteúdo, Estudos) vem sem call_id nem run_id: com um id fixo ("fim-") cada
+// aviso novo apagava o anterior da barra. Esse ganha um id próprio; nenhum push de revogação mira nele.
+const idDe = (d: { call_id?: string | null; run_id?: string; conv_id?: number }) =>
+  d.call_id || (d.run_id ? `fim-${d.run_id}` : `aviso-${d.conv_id ?? ""}-${Date.now()}`);
 
 async function mostra(d: any) {
   // O canal nasce no pareamento; recriar é inofensivo e cobre o app aberto pela 1ª vez já em segundo plano.
