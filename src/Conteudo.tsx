@@ -1,9 +1,10 @@
+import * as Clipboard from "expo-clipboard";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Linking, Pressable, RefreshControl, ScrollView, View } from "react-native";
 import { Text } from "./Texto";
 import { api } from "./api";
 import type { Conv } from "./Chat";
-import { Check, Externo, Filme, Play, Refresh, Square, Star, X } from "./icones";
+import { Check, Copy, Externo, Filme, Play, Refresh, Square, Star, X } from "./icones";
 import { c, mono, s } from "./tema";
 import { Botao, Selo, toast } from "./ui";
 import ConteudoVideo, { type ProducaoVideo } from "./ConteudoVideo";
@@ -233,6 +234,35 @@ function CardProducao({ p, onCancelar, onAssistir }: { p: Producao; onCancelar: 
       {p.status === "ok" && !!p.entregue && (
         <Botao primario rotulo="Assistir, salvar ou pedir mudanças" icone={<Play size={16} color={c.accentFg} />} onPress={onAssistir} />
       )}
+      {p.status === "ok" && <ParaYoutube id={p.id} />}
+    </View>
+  );
+}
+
+/** Título e descrição prontos para colar no app do YouTube: um toque copia. */
+function ParaYoutube({ id }: { id: number }) {
+  const [pub, setPub] = useState<{ titulo: string; descricao: string } | null>(null);
+  const [aberto, setAberto] = useState(false);
+  useEffect(() => {
+    api.get<{ titulo: string; descricao: string }>(`/conteudo/producao/${id}/publicacao`).then(setPub).catch(() => setPub(null));
+  }, [id]);
+  if (!pub) return null;
+  const copia = (texto: string, ok: string) => Clipboard.setStringAsync(texto).then(() => toast(ok));
+  return (
+    <View style={{ gap: 8, borderTopWidth: 1, borderTopColor: c.line, paddingTop: 10 }}>
+      <Text style={s.secao}>PARA O YOUTUBE</Text>
+      <Pressable onPress={() => copia(pub.titulo, "Título copiado")} style={{ gap: 2 }}>
+        <Text style={[s.txt, { fontWeight: "600" }]}>{pub.titulo}</Text>
+        <Text style={s.faint}>toque para copiar o título</Text>
+      </Pressable>
+      <Pressable onPress={() => setAberto(!aberto)}>
+        <Text style={[s.muted, { fontSize: 13, lineHeight: 19 }]} numberOfLines={aberto ? undefined : 4}>{pub.descricao}</Text>
+        <Text style={[s.faint, { marginTop: 2 }]}>{aberto ? "recolher" : "ver a descrição inteira"}</Text>
+      </Pressable>
+      <View style={{ flexDirection: "row", gap: 8 }}>
+        <Botao flex rotulo="Copiar título" icone={<Copy size={15} color={c.fg} />} onPress={() => copia(pub.titulo, "Título copiado")} />
+        <Botao flex rotulo="Copiar descrição" icone={<Copy size={15} color={c.fg} />} onPress={() => copia(pub.descricao, "Descrição copiada")} />
+      </View>
     </View>
   );
 }
