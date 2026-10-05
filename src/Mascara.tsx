@@ -21,20 +21,24 @@ const DICA: Record<Modo, string> = {
   anotacao: "Circule com cores e cite no prompt (\"remove the watch in the blue circle\"). A marca cobre parte da imagem.",
 };
 
-export default function Mascara({ alvo, modelo, onFecha, onPronta }: {
-  alvo: { path: string; w: number; h: number } | null; modelo?: string; onFecha: () => void;
-  onPronta: (uri: string, modo: Modo, tracos: number) => void;
+/** `alvo.uri`: imagem já no celular (o quadro capturado de um vídeo do Conteúdo) no lugar do arquivo do PC.
+ *  `soAnotacao`: sem o modo máscara (ninguém vai refazer a área: é só para mostrar o que mudar). */
+export default function Mascara({ alvo, modelo, onFecha, onPronta, soAnotacao }: {
+  alvo: { path: string; w: number; h: number; uri?: string } | null; modelo?: string; onFecha: () => void;
+  onPronta: (uri: string, modo: Modo, tracos: number) => void; soAnotacao?: boolean;
 }) {
   if (!alvo) return null;
-  return <Editor key={alvo.path} alvo={alvo} modelo={modelo} onFecha={onFecha} onPronta={onPronta} />;
+  return <Editor key={alvo.uri ?? alvo.path} alvo={alvo} modelo={modelo} onFecha={onFecha} onPronta={onPronta} soAnotacao={soAnotacao} />;
 }
 
-function Editor({ alvo, modelo, onFecha, onPronta }: {
-  alvo: { path: string; w: number; h: number }; modelo?: string; onFecha: () => void; onPronta: (uri: string, modo: Modo, tracos: number) => void;
+function Editor({ alvo, modelo, onFecha, onPronta, soAnotacao }: {
+  alvo: { path: string; w: number; h: number; uri?: string }; modelo?: string; onFecha: () => void;
+  onPronta: (uri: string, modo: Modo, tracos: number) => void; soAnotacao?: boolean;
 }) {
+  const fonte = alvo.uri ?? urlImagem(alvo.path);
   const inset = useSafeAreaInsets();
   const { width, height: altura } = useWindowDimensions();
-  const [modo, setModo] = useState<Modo>("mascara");
+  const [modo, setModo] = useState<Modo>(soAnotacao ? "anotacao" : "mascara");
   const [cor, setCor] = useState(CORES[0]);
   const [pincel, setPincel] = useState(48);
   const [borracha, setBorracha] = useState(false);
@@ -150,7 +154,7 @@ function Editor({ alvo, modelo, onFecha, onPronta }: {
           onLayout={(e) => setArea({ w: e.nativeEvent.layout.width, h: e.nativeEvent.layout.height })}>
       <View ref={caixa} collapsable={false} onLayout={mede} style={{ width: dw, height: dh }} {...handlers}>
         <View pointerEvents="none" style={{ width: dw, height: dh, transform: [{ translateX: vista.x }, { translateY: vista.y }, { scale: vista.z }] }}>
-          <Image source={{ uri: urlImagem(alvo.path) }} style={{ width: dw, height: dh }} resizeMode="contain" />
+          <Image source={{ uri: fonte }} style={{ width: dw, height: dh }} resizeMode="contain" />
           <View style={{ position: "absolute", left: 0, top: 0, width: dw, height: dh, opacity: modo === "mascara" ? 0.55 : 1 }}>
             {camada(false, "tela")}
             {!!atual && !atual.borracha && (
@@ -230,7 +234,7 @@ function Editor({ alvo, modelo, onFecha, onPronta }: {
       {/* Camada de exportação fora da tela: o captureRef a redimensiona para o tamanho da original. */}
       {gerando && (
         <View ref={exporta} collapsable={false} style={{ position: "absolute", left: -10000, top: 0, width: dw, height: dh, backgroundColor: "#000" }}>
-          {modo === "anotacao" && <Image source={{ uri: urlImagem(alvo.path) }} style={{ width: dw, height: dh }} resizeMode="stretch" />}
+          {modo === "anotacao" && <Image source={{ uri: fonte }} style={{ width: dw, height: dh }} resizeMode="stretch" />}
           {camada(modo === "mascara", "exporta")}
         </View>
       )}

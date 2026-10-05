@@ -79,27 +79,27 @@ const DO_MODELO = ["model", "seed", "offload", "flash_attn", "vae_tiling", "te_c
 export type Destino = "galeria" | "pasta" | "compartilhar";
 
 /** Baixa do PC para o cache do app (o MediaLibrary, o seletor de pasta e o compartilhar leem de um file:// local). */
-async function baixaLocal(p: string): Promise<File> {
+async function baixaLocal(p: string, url: (p: string) => string = urlImagem): Promise<File> {
   const pasta = new Directory(Paths.cache, "baixadas");
   if (!pasta.exists) pasta.create();
   const nome = p.split(/[\\/]/).pop() || `forja-${Date.now()}.png`;
-  return File.downloadFileAsync(urlImagem(p), new File(pasta, nome), { idempotent: true });
+  return File.downloadFileAsync(url(p), new File(pasta, nome), { idempotent: true });
 }
 
 /** Salva imagens do PC no celular: galeria, uma pasta escolhida (seletor do Android) ou compartilhar. Devolve o aviso.
  * Galeria sem álbum: o Album.create(..., mover) levava o arquivo para Pictures/Forja sem registrar no MediaStore,
  * e a galeria (que lê o MediaStore) não mostrava nada. */
-export async function salva(paths: string[], destino: Destino, mime = "image/png"): Promise<string> {
+export async function salva(paths: string[], destino: Destino, mime = "image/png", url?: (p: string) => string): Promise<string> {
   const video = mime.startsWith("video");
   if (destino === "compartilhar") {
-    const arq = await baixaLocal(paths[0]);
+    const arq = await baixaLocal(paths[0], url);
     await Sharing.shareAsync(arq.uri, { mimeType: mime, dialogTitle: "Compartilhar" });
     return "";
   }
   if (destino === "pasta") {
     const dir = await Directory.pickDirectoryAsync(); // cancelar rejeita: quem chama trata como "não salvou"
     for (const p of paths) {
-      const arq = await baixaLocal(p);
+      const arq = await baixaLocal(p, url);
       dir.createFile(arq.name, mime).write(await arq.bytes());
       arq.delete();
     }
@@ -108,7 +108,7 @@ export async function salva(paths: string[], destino: Destino, mime = "image/png
   const perm = await requestPermissionsAsync(true, ["photo"]); // só escrita: não pede para ler a galeria
   if (!perm.granted) throw new Error("Sem permissão para salvar na galeria. Libere em Configurações do Android › Apps › Forja.");
   for (const p of paths) {
-    const arq = await baixaLocal(p);
+    const arq = await baixaLocal(p, url);
     await Asset.create(arq.uri);
     arq.delete();
   }
