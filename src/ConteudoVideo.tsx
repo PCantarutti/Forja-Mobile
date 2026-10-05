@@ -152,7 +152,7 @@ function Player({ p, onFecha, onEnviado }: { p: ProducaoVideo; onFecha: () => vo
               </View>
             )}
             <TextInput value={trecho.comentario} onChangeText={(t) => setTrecho((x) => ({ ...x, comentario: t }))} multiline
-                       placeholder="Ex.: deixe essa parte mais rápida" placeholderTextColor={c.faint} style={campo} />
+                       placeholder="Ex.: troque por um trecho real do trailer (cole o link, se tiver)" placeholderTextColor={c.faint} style={campo} />
             <Botao rotulo="Adicionar trecho" desabilitado={!trechoPronto} onPress={() => {
               setPedidos((ps) => [...ps, { tipo: "trecho", inicio: Math.min(trecho.inicio!, trecho.fim!), fim: Math.max(trecho.inicio!, trecho.fim!),
                                            comentario: trecho.comentario.trim() }]);
@@ -173,7 +173,7 @@ function Player({ p, onFecha, onEnviado }: { p: ProducaoVideo; onFecha: () => vo
             ))}
 
             <Text style={s.faint}>No vídeo todo</Text>
-            <TextInput value={geral} onChangeText={setGeral} multiline placeholder="Ex.: música mais baixa, legenda maior"
+            <TextInput value={geral} onChangeText={setGeral} multiline placeholder="Ex.: música mais baixa; mostre 5 s do trailer oficial"
                        placeholderTextColor={c.faint} style={campo} />
             <Botao primario altura={46} rotulo={enviando ? "Enviando…" : `Fazer a versão ${proxima}`} icone={<Play size={16} color={c.accentFg} />}
                    desabilitado={enviando || (!pedidos.length && !geral.trim())} onPress={enviar} />
