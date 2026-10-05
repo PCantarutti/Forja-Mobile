@@ -142,16 +142,20 @@ const htmlComparar = (src: string, cmp: Cmp, fps: number, t0: number, nomeAtual:
     `</script></body></html>`;
 };
 
-function VideoWeb({ path, quadro, onTempo, web, cmp, fps, t0, nomeAtual }: {
-  path: string; quadro?: boolean; onTempo?: (t: number, d: number) => void; web?: React.Ref<WebView>;
-  cmp?: Cmp | null; fps?: number; t0?: number; nomeAtual?: string;
+/** `src`: URL pronta (o vídeo do Conteúdo, /api/conteudo/video/<id>) no lugar do arquivo do PC em `path`. */
+export function VideoWeb({ path, src, quadro, onTempo, onMensagem, web, cmp, fps, t0, nomeAtual }: {
+  path: string; src?: string; quadro?: boolean; onTempo?: (t: number, d: number) => void; onMensagem?: (m: any) => void;
+  web?: React.Ref<WebView>; cmp?: Cmp | null; fps?: number; t0?: number; nomeAtual?: string;
 }) {
+  const url = src ?? urlImagem(path);
   return (
-    <WebView ref={web} source={{ html: cmp ? htmlComparar(urlImagem(path), cmp, fps ?? 16, t0 ?? 0, nomeAtual ?? "Este") : htmlVideo(urlImagem(path), !!quadro), baseUrl: base() }}
+    <WebView ref={web} source={{ html: cmp ? htmlComparar(url, cmp, fps ?? 16, t0 ?? 0, nomeAtual ?? "Este") : htmlVideo(url, !!quadro), baseUrl: base() }}
              originWhitelist={["*"]} style={{ flex: 1, backgroundColor: "#000" }}
              mediaPlaybackRequiresUserAction={false} allowsInlineMediaPlayback scrollEnabled={false} pointerEvents={quadro ? "none" : "auto"}
              androidLayerType="hardware"
-             onMessage={onTempo ? (e) => { try { const m = JSON.parse(e.nativeEvent.data); onTempo(m.t, m.d); } catch {} } : undefined} />
+             onMessage={onTempo || onMensagem ? (e) => {
+               try { const m = JSON.parse(e.nativeEvent.data); if (m.quadro) onMensagem?.(m); else onTempo?.(m.t, m.d); } catch {}
+             } : undefined} />
   );
 }
 const relogio = (sg: number) => `${Math.floor(sg / 60)}:${String(Math.floor(sg % 60)).padStart(2, "0")}`;

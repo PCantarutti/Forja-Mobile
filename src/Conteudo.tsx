@@ -6,6 +6,7 @@ import type { Conv } from "./Chat";
 import { Check, Externo, Filme, Play, Refresh, Square, Star, X } from "./icones";
 import { c, mono, s } from "./tema";
 import { Botao, Selo, toast } from "./ui";
+import ConteudoVideo, { type ProducaoVideo } from "./ConteudoVideo";
 
 // Tela Conteúdo do Forja Desktop (E18), no celular: ver os roteiros que a pesquisa escreveu, aprovar o do vídeo
 // da noite, descartar, mandar produzir agora e acompanhar a produção. Mesmas rotas /api/conteudo do PC; o
@@ -20,7 +21,7 @@ type Roteiro = {
 type Rodada = { id: number; criado: string | null; status: string; fase: string; aviso: string; roteiros: Roteiro[];
   stats?: { uteis?: number }; fontes?: unknown[] };
 type Producao = { id: number; criado: string | null; status: string; titulo: string; aviso: string; log: string[]; segundos: number;
-  entregue: string };
+  entregue: string; formato?: "vertical" | "horizontal"; versao?: number };
 type Perdido = { trilha: "r" | "p"; slot: string };
 type Pronto = { rodada: number; roteiro: string; titulo: string };
 type Agenda = { modo: string; proximas: { r?: string; p?: string }; perdido?: Perdido | null; pronto?: Pronto | null };
@@ -55,6 +56,7 @@ export default function Conteudo({ conv, onAbre }: { conv: Conv | null; onAbre: 
   const [perdidos, setPerdidos] = useState<AgendaItem[]>([]);
   const [erro, setErro] = useState("");
   const [atualizando, setAtualizando] = useState(false);
+  const [assistindo, setAssistindo] = useState<ProducaoVideo | null>(null);
   const convId = conv?.id ?? null;
 
   const carrega = useCallback(async () => {
@@ -159,8 +161,9 @@ export default function Conteudo({ conv, onAbre }: { conv: Conv | null; onAbre: 
       {!!erro && <Text style={[s.muted, { color: c.err }]} onPress={() => setErro("")}>{erro}</Text>}
 
       {producoes.length > 0 && <Text style={s.secao}>PRODUÇÃO</Text>}
-      {producoes.map((p) => <CardProducao key={p.id} p={p}
+      {producoes.map((p) => <CardProducao key={p.id} p={p} onAssistir={() => setAssistindo(p)}
         onCancelar={() => acao(() => api.post(`/conteudo/producao/${p.id}/cancelar`, {}), "Cancelando…")} />)}
+      <ConteudoVideo p={assistindo} onFecha={() => setAssistindo(null)} onEnviado={() => { setAssistindo(null); carrega(); }} />
 
       <Text style={s.secao}>ROTEIROS</Text>
       {rodadas.length === 0 && <Text style={s.muted}>Nenhum roteiro ainda. "Gerar roteiros" pesquisa as novidades do tema.</Text>}
@@ -211,14 +214,14 @@ function AvisoPronto({ nome, pronto, onGerar }: { nome?: string; pronto: Pronto;
   );
 }
 
-function CardProducao({ p, onCancelar }: { p: Producao; onCancelar: () => void }) {
+function CardProducao({ p, onCancelar, onAssistir }: { p: Producao; onCancelar: () => void; onAssistir: () => void }) {
   const cor = p.status === "ok" ? c.ok : p.status === "rodando" ? c.info : p.status === "erro" ? c.err : c.muted;
   const rotulo = { rodando: "produzindo", ok: "vídeo pronto", erro: "não terminou", cancelado: "cancelada" }[p.status] ?? p.status;
   return (
     <View style={card}>
       <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
         <Filme size={16} color={c.muted} />
-        <Text style={[s.txt, { flex: 1, fontWeight: "600" }]} numberOfLines={2}>{p.titulo}</Text>
+        <Text style={[s.txt, { flex: 1, fontWeight: "600" }]} numberOfLines={2}>{(p.versao ?? 1) > 1 ? `v${p.versao} · ` : ""}{p.titulo}</Text>
       </View>
       <Text style={[s.muted, { color: cor }]}>{rotulo} · {relogio(p.segundos)} · {dataCurta(p.criado)}</Text>
       {!!p.aviso && <Text style={[s.muted, { color: c.warn }]}>{p.aviso}</Text>}
@@ -227,6 +230,9 @@ function CardProducao({ p, onCancelar }: { p: Producao; onCancelar: () => void }
         <Text key={i} style={[s.faint, { fontFamily: mono, fontSize: 11 }]} numberOfLines={1}>{l}</Text>
       ))}
       {p.status === "rodando" && <Botao rotulo="Cancelar" icone={<Square size={14} color={c.fg} />} altura={32} onPress={onCancelar} />}
+      {p.status === "ok" && !!p.entregue && (
+        <Botao primario rotulo="Assistir, salvar ou pedir mudanças" icone={<Play size={16} color={c.accentFg} />} onPress={onAssistir} />
+      )}
     </View>
   );
 }
