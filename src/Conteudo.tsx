@@ -21,7 +21,9 @@ type Rodada = { id: number; criado: string | null; status: string; fase: string;
   stats?: { uteis?: number }; fontes?: unknown[] };
 type Producao = { id: number; criado: string | null; status: string; titulo: string; aviso: string; log: string[]; segundos: number;
   entregue: string };
-type Agenda = { modo: string; proximas: { r?: string; p?: string } };
+type Perdido = { trilha: "r" | "p"; slot: string };
+type Agenda = { modo: string; proximas: { r?: string; p?: string }; perdido?: Perdido | null };
+type AgendaItem = Agenda & { id: number; nome: string };
 
 const MODOS: Record<string, string> = { desligada: "manual", aprovacao: "aprovação", automatico: "automático" };
 const FASES: Record<string, string> = {
@@ -49,6 +51,7 @@ export default function Conteudo({ conv, onAbre }: { conv: Conv | null; onAbre: 
   const [rodadas, setRodadas] = useState<Rodada[]>([]);
   const [producoes, setProducoes] = useState<Producao[]>([]);
   const [agenda, setAgenda] = useState<Agenda | null>(null);
+  const [perdidos, setPerdidos] = useState<AgendaItem[]>([]);
   const [erro, setErro] = useState("");
   const [atualizando, setAtualizando] = useState(false);
   const convId = conv?.id ?? null;
@@ -57,7 +60,10 @@ export default function Conteudo({ conv, onAbre }: { conv: Conv | null; onAbre: 
     try {
       const lista = await api.get<Spec[]>("/conteudo/especificacoes");
       setSpecs(lista);
-      if (convId == null) return;
+      if (convId == null) {
+        setPerdidos((await api.get<AgendaItem[]>("/conteudo/agenda")).filter((a) => a.perdido));
+        return;
+      }
       const [r, p, a] = await Promise.all([
         api.get<Rodada[]>(`/conteudo/especificacoes/${convId}/roteiros`),
         api.get<Producao[]>(`/conteudo/especificacoes/${convId}/producao`),
@@ -103,6 +109,10 @@ export default function Conteudo({ conv, onAbre }: { conv: Conv | null; onAbre: 
   if (convId == null) {
     return (
       <ScrollView style={s.tela} contentContainerStyle={{ padding: 16, gap: 10 }} refreshControl={refresh}>
+        {perdidos.map((a) => (
+          <AvisoPerdido key={a.id} nome={a.nome} perdido={a.perdido!}
+            onResponder={(acao_, ok) => acao(() => api.post(`/conteudo/especificacoes/${a.id}/agenda/perdido`, { acao: acao_ }), ok)} />
+        ))}
         <Text style={s.secao}>ESPECIFICAÇÕES · {specs.length}</Text>
         {specs.map((sp) => (
           <Pressable key={sp.id} onPress={() => onAbre({ id: sp.id, title: sp.nome, kind: "conteudo" })} style={card}>
@@ -127,6 +137,10 @@ export default function Conteudo({ conv, onAbre }: { conv: Conv | null; onAbre: 
           {spec.estilo} · {spec.formato === "horizontal" ? "horizontal 16:9" : "vertical 9:16"} · automação {MODOS[spec.automacao.modo]}
           {agenda?.proximas.r ? ` · roteiros ${quando(agenda.proximas.r)}` : ""}{agenda?.proximas.p ? ` · vídeo ${quando(agenda.proximas.p)}` : ""}
         </Text>
+      )}
+      {agenda?.perdido && (
+        <AvisoPerdido perdido={agenda.perdido}
+          onResponder={(acao_, ok) => acao(() => api.post(`/conteudo/especificacoes/${convId}/agenda/perdido`, { acao: acao_ }), ok)} />
       )}
       <View style={{ flexDirection: "row", gap: 8 }}>
         <Botao rotulo="Gerar roteiros" icone={<Refresh size={16} color={c.fg} />} flex desabilitado={ocupado}
@@ -158,6 +172,24 @@ export default function Conteudo({ conv, onAbre }: { conv: Conv | null; onAbre: 
         </View>
       ))}
     </ScrollView>
+  );
+}
+
+/** Horário perdido (o Forja do PC estava desligado): rodar agora ou pular. O push que chegou leva até aqui. */
+function AvisoPerdido({ nome, perdido, onResponder }: {
+  nome?: string; perdido: Perdido; onResponder: (acao: "rodar" | "pular", ok: string) => void;
+}) {
+  return (
+    <View style={[card, { borderColor: c.warn }]}>
+      <Text style={s.txt}>
+        {nome ? `${nome}: ` : ""}o Forja estava desligado às {perdido.slot.slice(11, 16)} e {perdido.trilha === "r" ? "a pesquisa" : "o vídeo"} de hoje não rodou.
+      </Text>
+      <View style={{ flexDirection: "row", gap: 8 }}>
+        <Botao rotulo="Pular" flex onPress={() => onResponder("pular", "Pulado")} />
+        <Botao rotulo="Rodar agora" icone={<Play size={16} color={c.accentFg} />} primario flex
+               onPress={() => onResponder("rodar", "Começou no PC")} />
+      </View>
+    </View>
   );
 }
 
