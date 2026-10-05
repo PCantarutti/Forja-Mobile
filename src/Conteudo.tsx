@@ -22,7 +22,8 @@ type Rodada = { id: number; criado: string | null; status: string; fase: string;
 type Producao = { id: number; criado: string | null; status: string; titulo: string; aviso: string; log: string[]; segundos: number;
   entregue: string };
 type Perdido = { trilha: "r" | "p"; slot: string };
-type Agenda = { modo: string; proximas: { r?: string; p?: string }; perdido?: Perdido | null };
+type Pronto = { rodada: number; roteiro: string; titulo: string };
+type Agenda = { modo: string; proximas: { r?: string; p?: string }; perdido?: Perdido | null; pronto?: Pronto | null };
 type AgendaItem = Agenda & { id: number; nome: string };
 
 const MODOS: Record<string, string> = { desligada: "manual", aprovacao: "aprovação", automatico: "automático" };
@@ -61,7 +62,7 @@ export default function Conteudo({ conv, onAbre }: { conv: Conv | null; onAbre: 
       const lista = await api.get<Spec[]>("/conteudo/especificacoes");
       setSpecs(lista);
       if (convId == null) {
-        setPerdidos((await api.get<AgendaItem[]>("/conteudo/agenda")).filter((a) => a.perdido));
+        setPerdidos((await api.get<AgendaItem[]>("/conteudo/agenda")).filter((a) => a.perdido || a.pronto));
         return;
       }
       const [r, p, a] = await Promise.all([
@@ -109,9 +110,12 @@ export default function Conteudo({ conv, onAbre }: { conv: Conv | null; onAbre: 
   if (convId == null) {
     return (
       <ScrollView style={s.tela} contentContainerStyle={{ padding: 16, gap: 10 }} refreshControl={refresh}>
-        {perdidos.map((a) => (
-          <AvisoPerdido key={a.id} nome={a.nome} perdido={a.perdido!}
+        {perdidos.map((a) => a.perdido ? (
+          <AvisoPerdido key={a.id} nome={a.nome} perdido={a.perdido}
             onResponder={(acao_, ok) => acao(() => api.post(`/conteudo/especificacoes/${a.id}/agenda/perdido`, { acao: acao_ }), ok)} />
+        ) : (
+          <AvisoPronto key={a.id} nome={a.nome} pronto={a.pronto!}
+            onGerar={() => acao(() => api.post(`/conteudo/especificacoes/${a.id}/producao`, { message_id: a.pronto!.rodada, roteiro_id: a.pronto!.roteiro }), "O Claude começou o vídeo")} />
         ))}
         <Text style={s.secao}>ESPECIFICAÇÕES · {specs.length}</Text>
         {specs.map((sp) => (
@@ -137,6 +141,10 @@ export default function Conteudo({ conv, onAbre }: { conv: Conv | null; onAbre: 
           {spec.estilo} · {spec.formato === "horizontal" ? "horizontal 16:9" : "vertical 9:16"} · automação {MODOS[spec.automacao.modo]}
           {agenda?.proximas.r ? ` · roteiros ${quando(agenda.proximas.r)}` : ""}{agenda?.proximas.p ? ` · vídeo ${quando(agenda.proximas.p)}` : ""}
         </Text>
+      )}
+      {agenda?.pronto && (
+        <AvisoPronto pronto={agenda.pronto}
+          onGerar={() => acao(() => api.post(`/conteudo/especificacoes/${convId}/producao`, { message_id: agenda.pronto!.rodada, roteiro_id: agenda.pronto!.roteiro }), "O Claude começou o vídeo")} />
       )}
       {agenda?.perdido && (
         <AvisoPerdido perdido={agenda.perdido}
@@ -189,6 +197,16 @@ function AvisoPerdido({ nome, perdido, onResponder }: {
         <Botao rotulo="Rodar agora" icone={<Play size={16} color={c.accentFg} />} primario flex
                onPress={() => onResponder("rodar", "Começou no PC")} />
       </View>
+    </View>
+  );
+}
+
+/** O automático escolheu o roteiro e parou ("Deixa pronto"): um toque e o Claude faz o vídeo. */
+function AvisoPronto({ nome, pronto, onGerar }: { nome?: string; pronto: Pronto; onGerar: () => void }) {
+  return (
+    <View style={[card, { borderColor: c.accent }]}>
+      <Text style={s.txt}>{nome ? `${nome}: ` : ""}roteiro pronto — {pronto.titulo}</Text>
+      <Botao rotulo="Gerar o vídeo" icone={<Play size={16} color={c.accentFg} />} primario onPress={onGerar} />
     </View>
   );
 }
