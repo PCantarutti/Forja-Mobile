@@ -22,7 +22,8 @@ type Roteiro = {
 type Rodada = { id: number; criado: string | null; status: string; fase: string; aviso: string; roteiros: Roteiro[];
   stats?: { uteis?: number }; fontes?: unknown[] };
 type Producao = { id: number; criado: string | null; status: string; titulo: string; aviso: string; log: string[]; segundos: number;
-  entregue: string; formato?: "vertical" | "horizontal"; versao?: number };
+  entregue: string; formato?: "vertical" | "horizontal"; versao?: number;
+  voz?: string; voz_final?: string };   // voz_final "pendente": versão de validação com o Edge, esperando o ElevenLabs
 type Perdido = { trilha: "r" | "p"; slot: string };
 type Pronto = { rodada: number; roteiro: string; titulo: string };
 type Agenda = { modo: string; proximas: { r?: string; p?: string }; perdido?: Perdido | null; pronto?: Pronto | null };
@@ -162,8 +163,9 @@ export default function Conteudo({ conv, onAbre }: { conv: Conv | null; onAbre: 
       {!!erro && <Text style={[s.muted, { color: c.err }]} onPress={() => setErro("")}>{erro}</Text>}
 
       {producoes.length > 0 && <Text style={s.secao}>PRODUÇÃO</Text>}
-      {producoes.map((p) => <CardProducao key={p.id} p={p} onAssistir={() => setAssistindo(p)}
-        onCancelar={() => acao(() => api.post(`/conteudo/producao/${p.id}/cancelar`, {}), "Cancelando…")} />)}
+      {producoes.map((p) => <CardProducao key={p.id} p={p} onAssistir={() => setAssistindo(p)} livre={!produzindo}
+        onCancelar={() => acao(() => api.post(`/conteudo/producao/${p.id}/cancelar`, {}), "Cancelando…")}
+        onVozFinal={() => acao(() => api.post(`/conteudo/producao/${p.id}/voz-final`, {}), "O Claude está trocando a voz")} />)}
       <ConteudoVideo p={assistindo} onFecha={() => setAssistindo(null)} onEnviado={() => { setAssistindo(null); carrega(); }} />
 
       <Text style={s.secao}>ROTEIROS</Text>
@@ -215,7 +217,9 @@ function AvisoPronto({ nome, pronto, onGerar }: { nome?: string; pronto: Pronto;
   );
 }
 
-function CardProducao({ p, onCancelar, onAssistir }: { p: Producao; onCancelar: () => void; onAssistir: () => void }) {
+function CardProducao({ p, onCancelar, onAssistir, onVozFinal, livre }:
+  { p: Producao; onCancelar: () => void; onAssistir: () => void; onVozFinal: () => void; livre: boolean }) {
+  const [confirmando, setConfirmando] = useState(false);   // gasta créditos do ElevenLabs: dois toques
   const cor = p.status === "ok" ? c.ok : p.status === "rodando" ? c.info : p.status === "erro" ? c.err : c.muted;
   const rotulo = { rodando: "produzindo", ok: "vídeo pronto", erro: "não terminou", cancelado: "cancelada" }[p.status] ?? p.status;
   return (
@@ -233,6 +237,13 @@ function CardProducao({ p, onCancelar, onAssistir }: { p: Producao; onCancelar: 
       {p.status === "rodando" && <Botao rotulo="Cancelar" icone={<Square size={14} color={c.fg} />} altura={32} onPress={onCancelar} />}
       {p.status === "ok" && !!p.entregue && (
         <Botao primario rotulo="Assistir, salvar ou pedir mudanças" icone={<Play size={16} color={c.accentFg} />} onPress={onAssistir} />
+      )}
+      {p.status === "ok" && p.voz_final === "pendente" && (
+        <View style={{ gap: 6 }}>
+          <Text style={s.muted}>Versão de validação com o Edge. Aprovou? Troque só a voz pela do ElevenLabs.</Text>
+          <Botao primario rotulo={confirmando ? "Toque de novo: gasta créditos" : "Gerar voz final (ElevenLabs)"} desabilitado={!livre}
+                 onPress={() => { if (!confirmando) { setConfirmando(true); return; } setConfirmando(false); onVozFinal(); }} />
+        </View>
       )}
       {p.status === "ok" && <ParaYoutube id={p.id} />}
     </View>
