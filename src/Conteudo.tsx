@@ -23,7 +23,8 @@ type Rodada = { id: number; criado: string | null; status: string; fase: string;
   stats?: { uteis?: number }; fontes?: unknown[] };
 type Producao = { id: number; criado: string | null; status: string; titulo: string; aviso: string; log: string[]; segundos: number;
   entregue: string; formato?: "vertical" | "horizontal"; versao?: number;
-  voz?: string; voz_final?: string };   // voz_final "pendente": versão de validação com o Edge, esperando o ElevenLabs
+  voz?: string; voz_final?: string;
+  youtube?: { status: "enviando" | "ok" | "erro"; progresso?: number; url?: string; privacidade?: string; aviso?: string; erro?: string } };   // voz_final "pendente": versão de validação com o Edge, esperando o ElevenLabs
 type Perdido = { trilha: "r" | "p"; slot: string };
 type Pronto = { rodada: number; roteiro: string; titulo: string };
 type Agenda = { modo: string; proximas: { r?: string; p?: string }; perdido?: Perdido | null; pronto?: Pronto | null };
@@ -165,7 +166,8 @@ export default function Conteudo({ conv, onAbre }: { conv: Conv | null; onAbre: 
       {producoes.length > 0 && <Text style={s.secao}>PRODUÇÃO</Text>}
       {producoes.map((p) => <CardProducao key={p.id} p={p} onAssistir={() => setAssistindo(p)} livre={!produzindo}
         onCancelar={() => acao(() => api.post(`/conteudo/producao/${p.id}/cancelar`, {}), "Cancelando…")}
-        onVozFinal={() => acao(() => api.post(`/conteudo/producao/${p.id}/voz-final`, {}), "O Claude está trocando a voz")} />)}
+        onVozFinal={() => acao(() => api.post(`/conteudo/producao/${p.id}/voz-final`, {}), "O Claude está trocando a voz")}
+        onYoutube={(privacidade) => acao(() => api.post(`/conteudo/producao/${p.id}/youtube`, { privacidade }), "Subindo para o YouTube pelo PC")} />)}
       <ConteudoVideo p={assistindo} onFecha={() => setAssistindo(null)} onEnviado={() => { setAssistindo(null); carrega(); }} />
 
       <Text style={s.secao}>ROTEIROS</Text>
@@ -217,8 +219,8 @@ function AvisoPronto({ nome, pronto, onGerar }: { nome?: string; pronto: Pronto;
   );
 }
 
-function CardProducao({ p, onCancelar, onAssistir, onVozFinal, livre }:
-  { p: Producao; onCancelar: () => void; onAssistir: () => void; onVozFinal: () => void; livre: boolean }) {
+function CardProducao({ p, onCancelar, onAssistir, onVozFinal, onYoutube, livre }:
+  { p: Producao; onCancelar: () => void; onAssistir: () => void; onVozFinal: () => void; onYoutube: (privacidade: string) => void; livre: boolean }) {
   const [confirmando, setConfirmando] = useState(false);   // gasta créditos do ElevenLabs: dois toques
   const cor = p.status === "ok" ? c.ok : p.status === "rodando" ? c.info : p.status === "erro" ? c.err : c.muted;
   const rotulo = { rodando: "produzindo", ok: "vídeo pronto", erro: "não terminou", cancelado: "cancelada" }[p.status] ?? p.status;
@@ -245,7 +247,40 @@ function CardProducao({ p, onCancelar, onAssistir, onVozFinal, livre }:
                  onPress={() => { if (!confirmando) { setConfirmando(true); return; } setConfirmando(false); onVozFinal(); }} />
         </View>
       )}
+      {p.status === "ok" && p.voz_final !== "pendente" && <PublicarYoutube yt={p.youtube} onPublicar={onYoutube} />}
       {p.status === "ok" && <ParaYoutube id={p.id} />}
+    </View>
+  );
+}
+
+const PRIVACIDADE: Record<string, string> = { private: "privado", unlisted: "não listado", public: "público" };
+
+/** Publicar no YouTube pelo PC (a conta fica conectada lá): andamento e link, iguais aos da tela do PC. */
+function PublicarYoutube({ yt, onPublicar }: { yt: Producao["youtube"]; onPublicar: (privacidade: string) => void }) {
+  const [escolhendo, setEscolhendo] = useState(false);
+  if (yt?.status === "ok") {
+    return (
+      <View style={{ gap: 4 }}>
+        <Text style={[s.muted, { color: c.accentText }]} onPress={() => yt.url && Linking.openURL(yt.url)}>
+          No YouTube ({PRIVACIDADE[yt.privacidade ?? ""] ?? yt.privacidade}): {yt.url}
+        </Text>
+        {!!yt.aviso && <Text style={[s.faint, { color: c.warn }]}>{yt.aviso}</Text>}
+      </View>
+    );
+  }
+  if (yt?.status === "enviando") return <Text style={s.muted}>Subindo para o YouTube… {Math.round((yt.progresso ?? 0) * 100)}%</Text>;
+  return (
+    <View style={{ gap: 6 }}>
+      {yt?.status === "erro" && <Text style={[s.faint, { color: c.err }]}>{yt.erro}</Text>}
+      {escolhendo ? (
+        <View style={{ flexDirection: "row", gap: 6 }}>
+          {Object.entries(PRIVACIDADE).map(([k, v]) => (
+            <Botao key={k} rotulo={v} flex altura={34} onPress={() => { setEscolhendo(false); onPublicar(k); }} />
+          ))}
+        </View>
+      ) : (
+        <Botao rotulo={yt?.status === "erro" ? "Tentar de novo no YouTube" : "Publicar no YouTube"} altura={34} onPress={() => setEscolhendo(true)} />
+      )}
     </View>
   );
 }
