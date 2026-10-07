@@ -17,7 +17,7 @@ type Spec = { id: number; nome: string; estilo: string; formato: "vertical" | "h
 type Roteiro = {
   id: string; status: "novo" | "aprovado" | "descartado" | "produzido"; titulo: string; titulo_youtube: string; ideia: string;
   noticia: { resumo: string; data: string; fontes: { titulo: string; url: string }[] };
-  cenas: { id: string; texto: string }[]; confianca: number; motivo_confianca: string; segundos: number;
+  cenas: { id: string; texto: string }[]; confianca: number; motivo_confianca: string; segundos: number; repetido?: string;
 };
 type Rodada = { id: number; criado: string | null; status: string; fase: string; aviso: string; roteiros: Roteiro[];
   stats?: { uteis?: number }; fontes?: unknown[] };
@@ -291,6 +291,7 @@ function CardRoteiro({ x, produzindo, onStatus, onProduzir }: {
         <View style={{ flexDirection: "row", gap: 6, flexWrap: "wrap" }}>
           {x.status === "aprovado" && <Selo t="aprovado" cor={c.ok} fundo={c.okSoft} />}
           {x.status === "produzido" && <Selo t="virou vídeo" cor={c.info} />}
+          {!!x.repetido && <Selo t="repete vídeo já feito" cor={c.warn} />}
           <Selo t={`confiança ${CONFIANCA[x.confianca]}`} cor={corConf} />
           <Selo t={`~${x.segundos}s`} />
         </View>
