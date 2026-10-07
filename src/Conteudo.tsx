@@ -24,7 +24,8 @@ type Rodada = { id: number; criado: string | null; status: string; fase: string;
   stats?: { uteis?: number }; fontes?: unknown[] };
 type Producao = { id: number; criado: string | null; status: string; titulo: string; aviso: string; log: string[]; segundos: number;
   entregue: string; formato?: "vertical" | "horizontal"; versao?: number;
-  voz?: string; voz_final?: string };   // voz_final "pendente": versão de validação com o Edge, esperando o ElevenLabs
+  voz?: string; voz_final?: string;
+  qc?: { ok: boolean; problemas: string[]; revisao?: number; aviso?: string }; qc_auto?: boolean };   // voz_final "pendente": versão de validação com o Edge, esperando o ElevenLabs
 type Perdido = { trilha: "r" | "p"; slot: string };
 type Pronto = { rodada: number; roteiro: string; titulo: string };
 type Agenda = { modo: string; proximas: { r?: string; p?: string }; perdido?: Perdido | null; pronto?: Pronto | null };
@@ -231,6 +232,13 @@ function CardProducao({ p, onCancelar, onAssistir, onVozFinal, livre }:
       </View>
       <Text style={[s.muted, { color: cor }]}>{rotulo} · {relogio(p.segundos)} · {dataCurta(p.criado)}</Text>
       {!!p.aviso && <Text style={[s.muted, { color: c.warn }]}>{p.aviso}</Text>}
+      {p.qc?.ok && <Text style={s.faint}>✓ conferido automaticamente</Text>}
+      {p.qc && !p.qc.ok && (
+        <View style={{ gap: 2 }}>
+          <Text style={[s.muted, { color: c.warn, fontWeight: "600" }]}>Conferência achou: {p.qc.problemas.join(" · ")}</Text>
+          <Text style={s.faint}>{p.qc.revisao ? "O Claude já está fazendo a versão corrigida." : p.qc_auto ? "Esta já era a correção automática." : p.qc.aviso ?? ""}</Text>
+        </View>
+      )}
       {!!p.entregue && <Text style={[s.faint, { fontFamily: mono }]} numberOfLines={2}>{p.entregue}</Text>}
       {p.status === "rodando" && p.log.slice(-3).map((l, i) => (
         <Text key={i} style={[s.faint, { fontFamily: mono, fontSize: 11 }]} numberOfLines={1}>{l}</Text>
