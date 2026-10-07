@@ -18,6 +18,7 @@ type Roteiro = {
   id: string; status: "novo" | "aprovado" | "descartado" | "produzido"; titulo: string; titulo_youtube: string; ideia: string;
   noticia: { resumo: string; data: string; fontes: { titulo: string; url: string }[] };
   cenas: { id: string; texto: string }[]; confianca: number; motivo_confianca: string; segundos: number; repetido?: string;
+  nota?: { total: number; fatos: number; comentario: string };
 };
 type Rodada = { id: number; criado: string | null; status: string; fase: string; aviso: string; roteiros: Roteiro[];
   stats?: { uteis?: number }; fontes?: unknown[] };
@@ -252,10 +253,10 @@ function CardProducao({ p, onCancelar, onAssistir, onVozFinal, livre }:
 
 /** Título e descrição prontos para colar no app do YouTube: um toque copia. */
 function ParaYoutube({ id }: { id: number }) {
-  const [pub, setPub] = useState<{ titulo: string; descricao: string } | null>(null);
+  const [pub, setPub] = useState<{ titulo: string; descricao: string; titulos?: string[] } | null>(null);
   const [aberto, setAberto] = useState(false);
   useEffect(() => {
-    api.get<{ titulo: string; descricao: string }>(`/conteudo/producao/${id}/publicacao`).then(setPub).catch(() => setPub(null));
+    api.get<{ titulo: string; descricao: string; titulos?: string[] }>(`/conteudo/producao/${id}/publicacao`).then(setPub).catch(() => setPub(null));
   }, [id]);
   if (!pub) return null;
   const copia = (texto: string, ok: string) => Clipboard.setStringAsync(texto).then(() => toast(ok));
@@ -266,6 +267,11 @@ function ParaYoutube({ id }: { id: number }) {
         <Text style={[s.txt, { fontWeight: "600" }]}>{pub.titulo}</Text>
         <Text style={s.faint}>toque para copiar o título</Text>
       </Pressable>
+      {(pub.titulos ?? []).map((t) => (
+        <Pressable key={t} onPress={() => copia(t, "Título copiado")}>
+          <Text style={s.muted}>outra opção: {t}</Text>
+        </Pressable>
+      ))}
       <Pressable onPress={() => setAberto(!aberto)}>
         <Text style={[s.muted, { fontSize: 13, lineHeight: 19 }]} numberOfLines={aberto ? undefined : 4}>{pub.descricao}</Text>
         <Text style={[s.faint, { marginTop: 2 }]}>{aberto ? "recolher" : "ver a descrição inteira"}</Text>
@@ -292,6 +298,8 @@ function CardRoteiro({ x, produzindo, onStatus, onProduzir }: {
           {x.status === "aprovado" && <Selo t="aprovado" cor={c.ok} fundo={c.okSoft} />}
           {x.status === "produzido" && <Selo t="virou vídeo" cor={c.info} />}
           {!!x.repetido && <Selo t="repete vídeo já feito" cor={c.warn} />}
+          {!!x.nota && <Selo t={`editor ${x.nota.total.toLocaleString("pt-BR")}${x.nota.fatos <= 2 ? " · fatos fracos" : ""}`}
+                             cor={x.nota.fatos <= 2 ? c.err : c.muted} />}
           <Selo t={`confiança ${CONFIANCA[x.confianca]}`} cor={corConf} />
           <Selo t={`~${x.segundos}s`} />
         </View>
